@@ -82,6 +82,8 @@ def fake(monkeypatch):
     monkeypatch.setattr(transcribe, "_pipeline", lambda m: m)  # the fake is its own batched pipeline
     monkeypatch.setattr(transcribe, "_decode_audio", lambda path: np.zeros(24 * 16000, dtype=np.float32))
     monkeypatch.delenv("KARAOKE_WHISPER_PROMPT", raising=False)
+    # the fake's canned words leave sung gaps in the demo audio; the gap fill has its own tests
+    monkeypatch.setattr(transcribe, "GAP_MAX", 0)
     return model
 
 
@@ -276,3 +278,49 @@ def test_transcribe_real_model_on_demo(demo, store):
     assert t.language == "en" and t.audio == "vocals"
     for s in t.segments:
         assert 0 <= s.start <= s.end <= 24.5
+
+
+# --------------------------------------------------------------------------- gap fill
+
+
+def test_wordless_gaps_finds_sung_gaps_only():
+    import numpy as np
+
+    from karaoke.stages.transcribe import wordless_gaps
+
+    loud = np.zeros(1000, dtype=bool)  # 10 s at 10 ms
+    loud[300:420] = True  # 1.2 s of singing at 3.0-4.2 s
+    loud[800:950] = True  # 1.5 s of loud noise or an echo at 8.0-9.5 s: no syllable onsets
+    spans = [(1.0, 2.8), (4.5, 5.0), (5.1, 5.5), (7.0, 7.9), (9.7, 9.9)]
+    onsets = [3.0, 3.4, 3.9]
+    # 2.8-4.5 is sung; 5.5-7.0 is silent; 7.9-9.7 is loud but has no onsets
+    assert wordless_gaps(spans, loud, 0.01, onsets) == [(2.8, 4.5)]
+
+
+def test_gap_words_keeps_only_confident_words_inside_the_gap():
+    from types import SimpleNamespace as NS
+
+    from karaoke.stages.transcribe import gap_words
+
+    def w(text, s, e, p=0.9):
+        return NS(word=" " + text, start=s, end=e, probability=p)
+
+    seg = NS(text=" mas eu vou querer me internar", avg_logprob=-0.3, no_speech_prob=0.0,
+             words=[w("mas", 1.9, 2.4), w("eu", 2.9, 3.1), w("vou", 3.1, 3.4), w("querer", 3.4, 3.8),
+                    w("me", 3.8, 4.0, p=0.05), w("internar", 4.1, 4.9)])
+    kept = gap_words([seg], (2.8, 4.5))
+    assert [x.word.strip() for x in kept] == ["eu", "vou", "querer"]  # context, low-prob and edge words dropped
+    bad = NS(text=seg.text, avg_logprob=-1.5, no_speech_prob=0.0, words=seg.words)
+    assert gap_words([bad], (2.8, 4.5)) == []
+
+
+def test_split_region_cuts_in_a_pause_not_a_breath():
+    import numpy as np
+
+    from karaoke.audio import split_region
+
+    db = np.full(4000, -20.0)  # 40 s of singing at 10 ms
+    db[2500:2510] = -70.0  # a 0.1 s breath at 25.0 s
+    db[2200:2260] = -50.0  # a 0.6 s pause at 22.0 s (not as deep, but longer)
+    pieces = split_region((0.0, 40.0), db, 0.01, max_len=28.0)
+    assert 22.0 <= pieces[0][1] <= 22.6
