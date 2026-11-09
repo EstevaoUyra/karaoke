@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "Line": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
+        "singer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Singer"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "words": {
+          "items": {
+            "$ref": "#/$defs/Word"
+          },
+          "title": "Words",
+          "type": "array"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "end",
+        "words"
+      ],
+      "title": "Line",
+      "type": "object"
+    },
+    "LyricsSourceName": {
+      "enum": [
+        "user",
+        "lrclib",
+        "genius",
+        "youtube",
+        "whisper"
+      ],
+      "title": "LyricsSourceName",
+      "type": "string"
+    },
+    "UnmatchedAudio": {
+      "additionalProperties": false,
+      "description": "Whisper heard words here that match no lyric word (ad-lib? missing repetition?).",
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "text"
+      ],
+      "title": "UnmatchedAudio",
+      "type": "object"
+    },
+    "Word": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "conf": {
+          "default": 1.0,
+          "title": "Conf",
+          "type": "number"
+        },
+        "origin": {
+          "$ref": "#/$defs/WordOrigin",
+          "default": "matched"
+        }
+      },
+      "required": [
+        "text",
+        "start",
+        "end"
+      ],
+      "title": "Word",
+      "type": "object"
+    },
+    "WordOrigin": {
+      "enum": [
+        "matched",
+        "fuzzy",
+        "interpolated",
+        "manual",
+        "ai"
+      ],
+      "title": "WordOrigin",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language"
+    },
+    "text_source": {
+      "$ref": "#/$defs/LyricsSourceName"
+    },
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/Line"
+      },
+      "title": "Lines",
+      "type": "array"
+    },
+    "unmatched_audio": {
+      "items": {
+        "$ref": "#/$defs/UnmatchedAudio"
+      },
+      "title": "Unmatched Audio",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text_source",
+    "lines"
+  ],
+  "title": "LyricsFinal",
+  "type": "object"
+}

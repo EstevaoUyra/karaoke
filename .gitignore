@@ -1,0 +1,23 @@
+# Job data (audio, video, fetched lyrics, images) — never commit
+data/
+*.wav
+*.mp4
+*.webm
+*.m4a
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+web/node_modules/
+web/dist/
+
+# Env / secrets
+.env
+
+# OS
+.DS_Store

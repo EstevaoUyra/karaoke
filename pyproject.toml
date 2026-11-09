@@ -1,0 +1,79 @@
+[project]
+name = "karaoke"
+version = "0.1.0"
+description = "Paste a YouTube link, get a karaoke video: separated instrumental, verified word-synced lyrics, AI-directed backgrounds."
+readme = "README.md"
+license = "MIT"
+# torch 2.2.2 is the last PyTorch with Intel-macOS wheels, and it supports Python <= 3.12.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # --- ML (pinned for Intel macOS) ---
+    "torch==2.2.2",
+    "torchaudio==2.2.2",
+    "numpy<2",                       # torch 2.2 was built against numpy 1.x
+    "faster-whisper>=1.2,<2",
+    "audio-separator[cpu]>=0.24,<0.25",
+    # --- media / download ---
+    "yt-dlp[default]>=2026.10",
+    "soundfile>=0.12",
+    "librosa>=0.10",
+    "pillow>=10",
+    # --- lyrics / alignment ---
+    "httpx>=0.27",
+    "rapidfuzz>=3.9",
+    "unidecode>=1.3",
+    "lingua-language-detector>=2.0",
+    "webvtt-py>=0.5",
+    # --- app ---
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "typer>=0.12",
+    "rich>=13",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+    "python-multipart>=0.0.9",
+    "watchfiles>=0.22",
+]
+
+[project.scripts]
+karaoke = "karaoke.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+# Phase 0 spike only: forced alignment with stable-ts (decides whether it graduates to a real dependency).
+spike = ["stable-ts>=2.17"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["karaoke"]
+
+[tool.uv]
+default-groups = ["dev"]
+# Intel macOS is the primary dev machine: force versions that still ship x86_64 macOS wheels
+# (onnxruntime stopped after 1.23, torch after 2.2.2).
+required-environments = ["sys_platform == 'darwin' and platform_machine == 'x86_64'"]
+# llvmlite/numba (via librosa) also stopped shipping x86_64 macOS wheels after these versions.
+constraint-dependencies = [
+    "llvmlite<=0.45.1",
+    "numba<=0.62.1",
+    "av<17",  # faster-whisper 1.2.1 passes av.open(metadata_errors=...), removed in av 17+
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: needs real models / network (deselect with -m 'not slow')",
+]
+addopts = "-m 'not slow'"
+
+[tool.ruff]
+line-length = 125
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["UP047"]  # TypeVar generics are fine

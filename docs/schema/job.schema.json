@@ -1,0 +1,294 @@
+{
+  "$defs": {
+    "JobSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "default": "fast"
+        },
+        "separator_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Separator Model"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "enum": [
+                "pt",
+                "en"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "lyrics_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lyrics Source"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderSettings"
+        }
+      },
+      "title": "JobSettings",
+      "type": "object"
+    },
+    "Quality": {
+      "enum": [
+        "fast",
+        "hq"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
+    "RenderSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "default": "final",
+          "enum": [
+            "preview",
+            "final"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "font": {
+          "default": "Arial Rounded MT Bold",
+          "title": "Font",
+          "type": "string"
+        },
+        "font_size": {
+          "default": 64,
+          "title": "Font Size",
+          "type": "integer"
+        },
+        "color_sung": {
+          "default": "#4FC3F7",
+          "title": "Color Sung",
+          "type": "string"
+        },
+        "color_unsung": {
+          "default": "#FFFFFF",
+          "title": "Color Unsung",
+          "type": "string"
+        },
+        "color_outline": {
+          "default": "#000000",
+          "title": "Color Outline",
+          "type": "string"
+        },
+        "guide_vocals_db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guide Vocals Db"
+        },
+        "lead_in_s": {
+          "default": 1.5,
+          "title": "Lead In S",
+          "type": "number"
+        },
+        "countdown_gap_s": {
+          "default": 4.0,
+          "title": "Countdown Gap S",
+          "type": "number"
+        },
+        "show_title_card": {
+          "default": true,
+          "title": "Show Title Card",
+          "type": "boolean"
+        }
+      },
+      "title": "RenderSettings",
+      "type": "object"
+    },
+    "StageName": {
+      "enum": [
+        "ingest",
+        "separate",
+        "lyrics_fetch",
+        "transcribe",
+        "align",
+        "backgrounds",
+        "render"
+      ],
+      "title": "StageName",
+      "type": "string"
+    },
+    "StageState": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/StageStatus",
+          "default": "pending"
+        },
+        "input_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Hash"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration S"
+        },
+        "progress": {
+          "default": 0.0,
+          "title": "Progress",
+          "type": "number"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "StageState",
+      "type": "object"
+    },
+    "StageStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "done",
+        "failed",
+        "skipped"
+      ],
+      "title": "StageStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Url"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "settings": {
+      "$ref": "#/$defs/JobSettings"
+    },
+    "stages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StageState"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/StageName"
+      },
+      "title": "Stages",
+      "type": "object"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "Job",
+  "type": "object"
+}

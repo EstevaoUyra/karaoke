@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "LyricsSourceName": {
+      "enum": [
+        "user",
+        "lrclib",
+        "genius",
+        "youtube",
+        "whisper"
+      ],
+      "title": "LyricsSourceName",
+      "type": "string"
+    },
+    "SourceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/LyricsSourceName"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "synced": {
+          "default": false,
+          "title": "Synced",
+          "type": "boolean"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "duration_match": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Match"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "file"
+      ],
+      "title": "SourceInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "lyrics/chosen.json \u2014 what lyrics_fetch found and which text alignment should use.",
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "chosen": {
+      "$ref": "#/$defs/LyricsSourceName"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language"
+    },
+    "use_line_timings": {
+      "default": false,
+      "title": "Use Line Timings",
+      "type": "boolean"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceInfo"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chosen"
+  ],
+  "title": "LyricsChoice",
+  "type": "object"
+}
