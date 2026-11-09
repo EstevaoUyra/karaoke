@@ -117,7 +117,7 @@ STAGES: list[StageSpec] = [
         outputs=lambda p, j: [p.transcript],
         # "method" is bumped whenever the clip/retry logic changes, so old transcripts are redone.
         settings=lambda j, s: {"model": s.whisper_model, "language": j.settings.language,
-                               "prompt": os.environ.get("KARAOKE_WHISPER_PROMPT", "none"), "method": 2},
+                               "prompt": os.environ.get("KARAOKE_WHISPER_PROMPT", "none"), "method": 3},
         isolated=True,
     ),
     StageSpec(

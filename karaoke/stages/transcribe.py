@@ -42,6 +42,7 @@ import re
 import time
 import zlib
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from karaoke.models import LyricsChoice, Transcript, TSegment, TWord
@@ -155,6 +156,75 @@ LOOP_COMPRESSION = 4.0
 # longest legitimate stretch seen was 10 s (sustained, overlapping "sweet"s in the EN cover).
 MAX_WORDLESS_VOICE_S = 12.0
 WORD_REACH_S = 0.5  # a word "covers" this much voice on each side
+
+
+# Gap fill: whisper sometimes skips a short sung phrase. In Sacal the 30 s clip limit forced a cut
+# into fast rap at 29.9 s (the only near-silence was a breath right before a phrase), and whisper
+# dropped the phrase at the start of the next clip, as it often does with words at a clip's very
+# start. Moving or overlapping clips only moved the problem (whisper re-decoded other clips worse),
+# so gaps are fixed afterwards instead: gaps between words at least GAP_MIN_S long, with at least
+# GAP_VOICE_S of loud vocal stem AND at least GAP_MIN_ONSETS syllable onsets in them, are re-decoded
+# with GAP_CONTEXT_S of audio on each side; only the new words that fall inside the gap are kept.
+# The onsets matter: a loud gap without them is noise or an echo tail, where whisper invents words.
+GAP_MIN_S = 0.8
+GAP_VOICE_S = 0.5
+GAP_LOUD_DB = 30.0  # "loud" = within this of the stem's 95th-percentile level (as audio.ON_DB)
+GAP_CONTEXT_S = 1.0
+GAP_MAX = 40
+GAP_MIN_ONSETS = 2
+GAP_MIN_LOGPROB = -1.0
+GAP_MAX_NO_SPEECH = 0.6
+GAP_MIN_WORD_PROB = 0.2
+
+
+@dataclass
+class FillSegment:
+    """Words recovered by the gap fill, shaped like a faster-whisper segment for to_transcript."""
+    start: float
+    end: float
+    text: str
+    words: list[Any]
+    avg_logprob: float | None = None
+    no_speech_prob: float | None = None
+
+
+def wordless_gaps(spans: list[tuple[float, float]], loud: Any, hop_s: float, onsets: Any,
+                  min_gap: float = GAP_MIN_S, min_voice: float = GAP_VOICE_S,
+                  min_onsets: int = GAP_MIN_ONSETS) -> list[tuple[float, float]]:
+    """Gaps between consecutive words (sorted ``spans``) that have singing in them.
+
+    ``loud`` is a boolean array of "voice is loud" frames, ``hop_s`` apart; ``onsets`` are syllable
+    onset times (``karaoke.align.voicing.Envelope.onsets``).
+    """
+    import numpy as np
+
+    on = np.asarray(onsets, dtype=float)
+    out = []
+    for (_, e0), (s1, _) in zip(spans, spans[1:], strict=False):
+        if s1 - e0 < min_gap:
+            continue
+        a, b = int((e0 + 0.1) / hop_s), int((s1 - 0.1) / hop_s)
+        n_on = int(np.sum((on > e0 + 0.05) & (on < s1 - 0.05)))
+        if b > a and float(loud[a:b].sum()) * hop_s >= min_voice and n_on >= min_onsets:
+            out.append((round(e0, 3), round(s1, 3)))
+    return out
+
+
+def gap_words(segments: list[Any], gap: tuple[float, float]) -> list[Any]:
+    """The words of a gap re-decode that belong in the gap (not the context on either side)."""
+    g0, g1 = gap
+    keep = []
+    for sg in segments:
+        if (sg.avg_logprob is not None and sg.avg_logprob < GAP_MIN_LOGPROB) or \
+                (sg.no_speech_prob is not None and sg.no_speech_prob > GAP_MAX_NO_SPEECH) or \
+                compression_ratio(sg.text.strip()) > 2.4:
+            continue
+        for w in sg.words or []:
+            mid = (w.start + w.end) / 2
+            if w.word.strip() and g0 + 0.05 < mid < g1 - 0.05 and w.start >= g0 - 0.15 \
+                    and w.probability >= GAP_MIN_WORD_PROB:
+                keep.append(w)
+    return keep
 
 
 def compression_ratio(text: str) -> float:
@@ -305,6 +375,39 @@ def prompt_mode() -> str:
 # --------------------------------------------------------------------------- stage
 
 
+def _fill_gaps(ctx: StageContext, model, audio16k, segments: list[Any], common: dict[str, Any],
+               dur: float) -> list[Any]:
+    """Re-decode sung gaps between words (see ``wordless_gaps``) and add the words found."""
+    import numpy as np
+
+    from karaoke import audio
+
+    signal, sr = audio.read_mono(ctx.paths.vocals)
+    db = audio.rms_db(signal, sr)
+    loud = db >= float(np.percentile(db, 95)) - GAP_LOUD_DB if len(db) else np.zeros(0, bool)
+    spans = sorted((float(w.start), float(w.end)) for sg in segments for w in (sg.words or []) if w.word.strip())
+    from karaoke.align.voicing import Envelope
+
+    gaps = wordless_gaps(spans, loud, audio.HOP_S, Envelope(db).onsets())[:GAP_MAX]
+    if not gaps:
+        return segments
+    t0 = time.monotonic()
+    added = []
+    for k, (g0, g1) in enumerate(gaps):
+        ctx.progress(0.9 + 0.09 * k / len(gaps), f"re-decoding a sung gap at {g0:.0f}s")
+        w0, w1 = max(0.0, g0 - GAP_CONTEXT_S), min(dur, g1 + GAP_CONTEXT_S)
+        it, _ = model.transcribe(audio16k, **common, clip_timestamps=[w0, w1])
+        words = gap_words(list(it), (g0, g1))
+        ctx.log.info("gap %.2f-%.2f s: %d words recovered%s", g0, g1, len(words),
+                     f": {' '.join(w.word.strip() for w in words)}" if words else "")
+        if words:
+            added.append(FillSegment(start=words[0].start, end=words[-1].end,
+                                     text="".join(w.word for w in words), words=words))
+    ctx.log.info("gap fill: %d gaps re-decoded, %d words added in %.1f s", len(gaps),
+                 sum(len(f.words) for f in added), time.monotonic() - t0)
+    return sorted(segments + added, key=lambda sg: sg.start)
+
+
 def run(ctx: StageContext) -> None:
     from karaoke import audio
 
@@ -391,6 +494,7 @@ def run(ctx: StageContext) -> None:
         segments = [sg for segs in per_clip for sg in segs]
         ctx.log.info("transcribed %d segments, %d words in %.1f s (%d clips re-decoded)", len(segments),
                      sum(_n_words([sg]) for sg in segments), time.monotonic() - t0, len(bad))
+        segments = _fill_gaps(ctx, model, audio16k, segments, common, dur)
 
     transcript = to_transcript(segments, model=ctx.settings.whisper_model, language=language,
                                language_probability=language_probability, initial_prompt=prompt)
