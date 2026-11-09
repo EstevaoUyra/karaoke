@@ -136,3 +136,23 @@ The reference is the 53 line starts of the cover's own synced LRC (hand-made, ab
 - **Rows.** There are 2 rows, or 3 wherever lines come less than 2 s apart (the median over 5
   lines). Sacal switches to 3 rows when the rap starts, at 0:42; the cover only during its fast
   "Sweet" run.
+
+## Missed phrase at a clip cut (2026-11-09)
+
+- **The miss.** Whisper skipped Sacal's "Ou vão querer me internar" (29.9–31.3 s).
+  - Whisper's 30 s window forced a cut in a long rap stretch. The quietest frame was a 0.1 s
+    breath at 29.85 s, right before the phrase, so the next clip started with no lead-in, and
+    whisper often drops words at a clip's very start.
+- **Overlapping clips didn't work.** Overlapping split clips by 1 s made whisper decode other clips
+  worse (340 → 295 words), so it was reverted.
+- **What changed:**
+  - Cuts now go in the quietest 0.3 s stretch, not the quietest frame. With it, whisper caught the
+    phrase in its main pass (344 words).
+  - **Gap fill:** gaps between words of 0.8 s or more, with loud voice and at least 2 syllable
+    onsets, are re-decoded with 1 s of context, and only new confident words inside the gap are
+    kept.
+  - Without the onset requirement, the gap fill invented a word in a loud noise pause, so the
+    requirement stays.
+- **letras.mus.br.** It is searched through its public suggestion endpoint, and the song URL is
+  saved to `lyrics/sources/letras.json`. Its pages refuse automated clients (403, even
+  `robots.txt`), so the text has to be pasted by the user into `lyrics/sources/user.txt`.

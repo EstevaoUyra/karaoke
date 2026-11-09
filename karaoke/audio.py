@@ -27,6 +27,7 @@ OFF_DB = 38.0  # ... and ends when it falls below ref - OFF_DB (hysteresis)
 FLOOR_DBFS = -65.0  # never call anything below this voice, however quiet the track is
 MIN_REGION_S = 0.12  # drop blips shorter than this (clicks, breaths)
 MERGE_GAP_S = 1.0  # join regions separated by less than this
+SPLIT_SMOOTH_S = 0.3  # cuts go in the quietest stretch this long
 SPLIT_MIN_FRAC = 0.5  # long regions are cut at their quietest point after this fraction of max_len
 PAD_S = 0.4  # widen each region by this on both sides (whisper needs context at clip edges)
 
@@ -124,10 +125,14 @@ def split_region(region: Region, db: np.ndarray, hop_s: float, max_len: float,
     """
     s, e = region
     out: list[Region] = []
+    # the quietest 0.3 s stretch, not the quietest frame: a real pause between phrases rather
+    # than a breath right before a word (a cut there made whisper drop the phrase after it)
+    k = max(1, int(round(SPLIT_SMOOTH_S / hop_s)))
+    smooth = np.convolve(db, np.ones(k) / k, mode="same") if len(db) >= k else db
     while e - s > max_len:
         lo = int((s + max_len * min_frac) / hop_s)
         hi = min(int((s + max_len) / hop_s), len(db))
-        cut = (lo + int(np.argmin(db[lo:hi]))) * hop_s if hi > lo else s + max_len
+        cut = (lo + int(np.argmin(smooth[lo:hi]))) * hop_s if hi > lo else s + max_len
         out.append((s, cut))
         s = cut
     out.append((s, e))
