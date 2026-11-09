@@ -45,6 +45,7 @@ from karaoke.align.tokens import (
     match_key,
     whisper_tokens,
 )
+from karaoke.align.voicing import Envelope, trim_words
 from karaoke.models import (
     Line,
     LyricsFinal,
@@ -107,6 +108,7 @@ class AlignStats:
     lrc_lines_mapped: int = 0
     lrc_offset: float | None = None
     lrc_disabled_reason: str | None = None
+    pauses_trimmed: int = 0
     lost_edits: list[str] = field(default_factory=list)
 
 
@@ -189,11 +191,13 @@ def align_lyrics(
     text_source: LyricsSourceName = LyricsSourceName.lrclib,
     previous: LyricsFinal | None = None,
     params: dp.DPParams | None = None,
+    envelope: Envelope | None = None,
 ) -> tuple[LyricsFinal, AlignStats]:
+    """``envelope`` (the vocal stem's loudness) lets pauses be cut out of words, see ``voicing``."""
     stats = AlignStats()
     toks = whisper_tokens(transcript)
     if text_source == LyricsSourceName.whisper or not lines:
-        return _whisper_fallback(toks, duration, language, previous, stats)
+        return _whisper_fallback(toks, duration, language, previous, stats, envelope)
 
     words = [_W(line=ln.index, stanza=ln.stanza, pos=k, text=t, key=match_key(t))
              for ln in lines for k, t in enumerate(ln.words)]
@@ -248,7 +252,10 @@ def align_lyrics(
 
     times = [[float(w.start), float(w.end)] for w in words]  # type: ignore[arg-type]
     raw = [e - s for s, e in times]
-    enforce_monotonic(times, [w.kept is not None for w in words], duration)
+    fixed = [w.kept is not None for w in words]
+    enforce_monotonic(times, fixed, duration)
+    if envelope is not None:
+        stats.pauses_trimmed = trim_words(envelope, times, fixed)
 
     out_lines = _build_lines(lines, words, times, raw, anchors if use_line_timings else {}, preserved)
     unmatched = _unmatched(toks, used_w, looped)
@@ -578,8 +585,9 @@ def _unmatched(toks: list[WToken], used: set[int], looped: list[WToken]) -> list
 
 
 def _whisper_fallback(toks: list[WToken], duration: float | None, language: str | None,
-                      previous: LyricsFinal | None, stats: AlignStats) -> tuple[LyricsFinal, AlignStats]:
-    out = whisper_lines(toks, duration)
+                      previous: LyricsFinal | None, stats: AlignStats,
+                      envelope: Envelope | None = None) -> tuple[LyricsFinal, AlignStats]:
+    out = whisper_lines(toks, duration, envelope)
     if previous is not None:
         pseudo = [LyricLine(index=i, text=" ".join(w.text for w in ln.words), section=None,
                             words=[w.text for w in ln.words]) for i, ln in enumerate(out)]

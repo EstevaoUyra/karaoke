@@ -123,8 +123,9 @@ STAGES: list[StageSpec] = [
     StageSpec(
         StageName.align,
         inputs=lambda p: [p.transcript, p.lyrics_choice, p.lyrics_chosen_text, p.lyrics_source("lrclib.lrc"),
-                          p.meta],
+                          p.meta, p.vocals],
         outputs=lambda p, j: [p.lyrics_final],
+        settings=lambda j, s: {"method": 2},  # bumped when the algorithm changes
     ),
     StageSpec(
         StageName.backgrounds,

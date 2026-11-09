@@ -131,16 +131,32 @@ def test_next_line_is_dimmed_then_becomes_active_in_place():
     assert ass_bgr(RenderSettings().color_unsung) in pre.text
 
 
-def test_countdown_before_second_chorus_only():
+def test_countdown_dots_before_every_pause():
     events = demo_events()
-    dots = [e for e in events if e.name == "countdown"]
-    assert len(dots) == 3
-    # chorus 2 starts at 17.5 after a 5.1 s gap: dots vanish at 15.5, 16.5, 17.5
-    assert sorted(e.end for e in dots) == [1550, 1650, 1750]
-    assert all(e.start == 1400 for e in dots)
+    dots = sorted((e for e in events if e.name == "countdown"), key=lambda e: e.end)
+    # the 2 s intro (beat squeezed to fit) and chorus 2 after a 5.1 s gap (1 s beats)
+    assert len(dots) == 6
+    assert [e.end for e in dots[:3]][-1] == 200  # the last intro dot goes out on the first word
+    assert [e.end for e in dots[3:]] == [1550, 1650, 1750]
+    assert all(e.start == 1425 for e in dots[3:])  # 3 beats before, plus the fade-in
     assert all("\\p1" in e.text for e in dots)
-    # a larger threshold disables it
-    assert not [e for e in demo_events(RenderSettings(countdown_gap_s=6)) if e.name == "countdown"]
+    # the song's beat paces them
+    lf = make_demo.truth_lyrics()
+    paced = [e for e in build_events(lf, meta(), RenderSettings(), RES, beat_s=0.5) if e.name == "countdown"]
+    assert sorted(e.end for e in paced)[3:] == [1650, 1700, 1750]
+
+
+def test_pause_inside_a_line_holds_the_fill_and_shows_dots():
+    words = [Word(text="hold", start=5.0, end=5.5), Word(text="on", start=5.6, end=6.0),
+             Word(text="then", start=9.5, end=9.9), Word(text="go", start=10.0, end=10.5)]
+    lf = LyricsFinal(text_source=LyricsSourceName.user,
+                     lines=[Line(id="l1", start=5.0, end=10.5, words=words)])
+    events = build_events(lf, meta(), RenderSettings(), RES)
+    act = next(e for e in events if e.name == "line")
+    tags = [(k, int(v)) for k, v in K_TAG.findall(act.text)]
+    assert ("k", 350) in tags  # the fill waits 3.5 s instead of crawling over "on"
+    dots = sorted(e.end for e in events if e.name == "countdown")
+    assert dots[-3:] == [750, 850, 950]
 
 
 def test_title_card_only_with_a_long_intro():
@@ -171,21 +187,82 @@ def test_document_header_scales_with_resolution():
     assert doc720.count("\nDialogue:") == len(demo_events())
 
 
-def test_braces_in_lyrics_are_escaped_and_long_lines_shrink():
+def test_braces_are_escaped_and_long_lines_split_without_shrinking():
     words = [Word(text="{sneaky}", start=2.0, end=2.5)] + [
         Word(text=f"wordnumber{i}", start=2.5 + i * 0.3, end=2.8 + i * 0.3) for i in range(12)
     ]
     lf = LyricsFinal(text_source=LyricsSourceName.user,
                      lines=[Line(id="l1", start=2.0, end=words[-1].end, words=words)])
     events = build_events(lf, meta(), RenderSettings(), RES)
-    act = next(e for e in events if e.name == "line")
+    acts = [e for e in events if e.name == "line"]
     # only our own override blocks remain: every "{" opens a tag block
-    assert re.sub(r"\{\\[^}]*\}", "", act.text).count("{") == 0
-    assert "\uff5bsneaky\uff5d" in act.text
-    assert "\\fs" in act.text  # too wide for 1280 px at 42.7 px → shrunk
+    assert all(re.sub(r"\{\\[^}]*\}", "", a.text).count("{") == 0 for a in acts)
+    assert "\uff5bsneaky\uff5d" in acts[0].text
+    assert len(acts) >= 2  # too wide for one 1280 px row: split, never shrunk
+    assert not any("\\fs" in e.text for e in events if e.name in ("line", "next"))
+    assert sum(len(K_TAG.findall(a.text)) - 1 for a in acts) == len(words)  # every word once
+    assert len({POS.search(a.text).group(2) for a in acts}) >= 2
+
+
+def test_long_line_splits_at_the_parenthesis():
+    texts = "Sweet child of mine (sweet, sweet, sweet love of mine)".split()
+    words = [Word(text=t, start=2.0 + 0.4 * i, end=2.35 + 0.4 * i) for i, t in enumerate(texts)]
+    lf = LyricsFinal(text_source=LyricsSourceName.user,
+                     lines=[Line(id="l1", start=2.0, end=words[-1].end, words=words)])
+    acts = [e for e in build_events(lf, meta(), RenderSettings(), RES) if e.name == "line"]
+    plain = [re.sub(r"\{[^}]*\}", "", a.text).strip() for a in acts]
+    assert plain == ["Sweet child of mine", "(sweet, sweet, sweet love of mine)"]
+
+
+def _fast_song(n: int = 12, pitch: float = 1.4) -> LyricsFinal:
+    lines = []
+    for i in range(n):
+        t = 3.0 + i * pitch
+        ws = [Word(text=f"w{i}a", start=t, end=t + 0.5), Word(text=f"w{i}b", start=t + 0.6, end=t + 1.2)]
+        lines.append(Line(id=f"l{i}", start=t, end=t + 1.2, words=ws))
+    return LyricsFinal(text_source=LyricsSourceName.user, lines=lines)
+
+
+@pytest.mark.parametrize(("pitch", "rows"), [(1.4, 3), (2.6, 2)])
+def test_fast_blocks_use_three_rows(pitch, rows):
+    events = build_events(_fast_song(pitch=pitch), meta(60.0), RenderSettings(), RES)
+    lines = [e for e in events if e.name == "line"]
+    ys = [int(POS.search(e.text).group(2)) for e in lines]
+    assert len(set(ys)) == rows
+    assert ys[:rows] == sorted(ys[:rows])  # top to bottom, then around again
+    assert ys[rows] == ys[0]
+    # within a row, events never overlap in time, and each line is up before its first word
+    lyric = [e for e in events if e.name in ("line", "next")]
+    for y in set(ys):
+        evs = sorted((e for e in lyric if int(POS.search(e.text).group(2)) == y), key=lambda e: e.start)
+        for a, b in zip(evs, evs[1:], strict=False):
+            assert b.start >= a.end, (a, b)
+    for ev, ln in zip(lines, _fast_song(pitch=pitch).lines, strict=True):
+        assert ev.start < round(ln.words[0].start * 100)
 
 
 def test_empty_lyrics_gives_title_only():
     lf = LyricsFinal(text_source=LyricsSourceName.whisper, lines=[])
     events = build_events(lf, meta(), RenderSettings(), RES)
     assert [e.name for e in events] == ["title"]
+
+
+def test_rows_follow_the_pace_inside_one_block():
+    # slow lines (3 s apart), then fast ones (1.2 s apart), with no gap between them
+    lines, t = [], 3.0
+    for i in range(14):
+        ws = [Word(text=f"w{i}a", start=t, end=t + 0.4), Word(text=f"w{i}b", start=t + 0.5, end=t + 1.0)]
+        lines.append(Line(id=f"l{i}", start=t, end=t + 1.0, words=ws))
+        t += 3.0 if i < 6 else 1.2
+    lf = LyricsFinal(text_source=LyricsSourceName.user, lines=lines)
+    events = build_events(lf, meta(60.0), RenderSettings(), RES)
+    ys = [int(POS.search(e.text).group(2)) for e in events if e.name == "line"]
+    assert len(set(ys[:5])) == 2 and len(set(ys[-6:])) == 3
+    lyric = [e for e in events if e.name in ("line", "next")]
+    for y in set(ys):
+        evs = sorted((e for e in lyric if int(POS.search(e.text).group(2)) == y), key=lambda e: e.start)
+        for a, b in zip(evs, evs[1:], strict=False):
+            assert b.start >= a.end, (a, b)
+    # never more than three lyric lines on screen
+    for e in lyric:
+        assert sum(1 for o in lyric if o.start <= e.start < o.end) <= 3

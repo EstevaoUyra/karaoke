@@ -1,6 +1,7 @@
 """Stage 5 — align. Owner: workstream D.
 
-Inputs: ``transcript.whisper.json``, ``lyrics/chosen.json``, ``lyrics/chosen.txt``, optional ``lyrics/sources/lrclib.lrc``.
+Inputs: ``transcript.whisper.json``, ``lyrics/chosen.json``, ``lyrics/chosen.txt``, optional ``lyrics/sources/lrclib.lrc``,
+``stems/vocals.wav`` (its loudness shows the pauses that whisper folds into words, see ``align.voicing``).
 Output: ``lyrics.final.json`` (models.LyricsFinal).
 
 The lyrics text decides the WORDS and whisper decides the TIMING (PLAN.md §4 "Alignment"):
@@ -55,13 +56,20 @@ def run(ctx: StageContext) -> None:
     lrc_path = p.lyrics_source("lrclib.lrc")
     if choice.use_line_timings and lrc_path.exists():
         lrc = parse_lrc(lrc_path.read_text(encoding="utf-8"))
+    envelope = None
+    if p.vocals.exists():
+        from karaoke.align.voicing import Envelope
+
+        envelope = Envelope.from_file(p.vocals)
+    else:
+        ctx.log.warning("no vocal stem: pauses cannot be trimmed out of word timings")
     ctx.progress(0.2, f"aligning {sum(len(ln.words) for ln in lines)} lyric words")
 
     lf, stats = align_lyrics(
         lines, transcript, lrc=lrc, use_line_timings=bool(choice.use_line_timings and lrc),
         duration=meta.duration if meta else None,
         language=choice.language or (transcript.language if transcript.language in ("pt", "en") else None),
-        text_source=source, previous=previous,
+        text_source=source, previous=previous, envelope=envelope,
     )
     for issue in validate_lyrics(lf, meta.duration if meta else None):
         ctx.log.warning("validation: %s", issue)
@@ -73,6 +81,7 @@ def run(ctx: StageContext) -> None:
     flagged = sum(bool(ln.flags) for ln in lf.lines)
     msg = (f"{len(lf.lines)} lines, {stats.matched + stats.fuzzy}/{stats.words} words heard, "
            f"{stats.interpolated} interpolated, {flagged} lines flagged, "
-           f"{len(lf.unmatched_audio)} unmatched audio regions ({time.monotonic() - t0:.2f}s)")
+           f"{stats.pauses_trimmed} pauses trimmed, {len(lf.unmatched_audio)} unmatched audio regions "
+           f"({time.monotonic() - t0:.2f}s)")
     ctx.log.info("stats: %s", stats)
     ctx.progress(1.0, msg)

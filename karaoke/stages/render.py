@@ -115,8 +115,17 @@ def run(ctx: StageContext) -> None:
     out = p.preview_video if rs.preset == "preview" else p.final_video
     duration = meta.duration
 
-    ctx.progress(0.01, f"building subtitles ({size[0]}x{size[1]})")
-    ass_text = build_ass(lyrics, meta, rs, size)
+    ctx.progress(0.01, "finding the beat for the countdown dots")
+    try:
+        from karaoke.render.tempo import beat_period
+
+        beat_s = beat_period(p.instrumental)
+    except Exception as exc:  # noqa: BLE001 — the dots fall back to 1 s beats
+        ctx.log.warning("tempo detection failed: %s", exc)
+        beat_s = None
+    ctx.log.info("countdown beat: %s s", beat_s)
+    ctx.progress(0.02, f"building subtitles ({size[0]}x{size[1]})")
+    ass_text = build_ass(lyrics, meta, rs, size, beat_s)
     atomic_write_text(p.ass, ass_text)
 
     p.output_dir.mkdir(parents=True, exist_ok=True)
