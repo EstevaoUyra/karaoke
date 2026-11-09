@@ -110,6 +110,9 @@ class Meta(_Model):
     has_manual_subs: list[str] = Field(default_factory=list)  # language codes
     clean_artist: str | None = None  # from titleclean; used for lyrics lookup
     clean_title: str | None = None
+    # Qualifiers stripped from the title that help the lyrics search find the right recording,
+    # e.g. ["Captain Fantastic"] for "Sweet Child O Mine - Captain fantastic soundtrack Lyrics".
+    clean_extra: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- transcript.whisper.json
