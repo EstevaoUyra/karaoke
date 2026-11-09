@@ -2,7 +2,7 @@
 
 Paste a YouTube link and get a karaoke video: separated instrumental, word-synced and verified lyrics, and an optional AI-directed background.
 
-> Status: Phase 0 done (contracts, fixtures, benchmarks). The pipeline stages are being built. See [PLAN.md](PLAN.md).
+> Status: Phase 1 (command-line pipeline) is done. The web UI (Phase 2) and the AI skills (Phase 3) are next. See [PLAN.md](PLAN.md).
 
 ## How it works
 
@@ -17,10 +17,15 @@ review the lyrics and art-direct the background.
 ## Setup (macOS)
 
 ```bash
-brew install ffmpeg-full        # needs libass for subtitles (keg-only, doesn't replace ffmpeg)
+brew install libass x264 nasm pkgconf
+scripts/build_ffmpeg.sh         # ~15 min: FFmpeg with libass in ~/.local/opt/ffmpeg-karaoke
 uv sync                         # Python 3.12 venv with all dependencies
 cp .env.example .env            # optional API keys
 ```
+
+Homebrew's `ffmpeg` can't burn in subtitles (no libass). `ffmpeg-full` can, but on Intel Macs it
+compiles llvm and rust from source, which takes hours. The script builds only what's needed.
+On Apple Silicon, `brew install ffmpeg-full` and skipping the script is simpler.
 
 ## Use
 
