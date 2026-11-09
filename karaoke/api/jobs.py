@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
 import shutil
 import tempfile
@@ -264,7 +265,24 @@ def lyrics_sources(request: Request, job_id: str) -> dict:
                 files.append({"name": f.name, "text": f.read_text(encoding="utf-8", errors="replace")})
     chosen = state(request).store.lyrics_choice(job_id)
     chosen_text = p.lyrics_chosen_text.read_text(encoding="utf-8") if p.lyrics_chosen_text.exists() else None
-    return {"chosen": chosen.model_dump(mode="json") if chosen else None, "chosen_text": chosen_text, "files": files}
+    return {"chosen": chosen.model_dump(mode="json") if chosen else None, "chosen_text": chosen_text,
+            "files": files, "letras": _letras_pointer(p)}
+
+
+def _letras_pointer(p: JobPaths) -> dict | None:
+    """lyrics/sources/letras.json (written by lyrics_fetch): the song's letras.mus.br page, which the
+    user opens to copy the lyrics from (the site blocks automated clients, so we never fetch it)."""
+    f = p.lyrics_source("letras.json")
+    if not f.exists():
+        return None
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    url = d.get("url") if isinstance(d, dict) else None
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+        return None
+    return {"url": url, "title": str(d.get("title") or ""), "artist": str(d.get("artist") or "")}
 
 
 @router.put("/jobs/{job_id}/lyrics/user")

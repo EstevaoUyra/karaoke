@@ -86,6 +86,18 @@ def test_user_lyrics_roundtrip(client, demo):
     assert not demo.lyrics_source("user.txt").exists()
 
 
+def test_letras_pointer(client, demo):
+    assert client.get("/api/jobs/demo/lyrics/sources").json()["letras"] is None
+    demo.lyrics_source("letras.json").write_text(
+        '{"url": "https://www.letras.mus.br/demo-band/sing-it-loud/", "title": "Sing It Loud", "artist": "Demo Band"}')
+    assert client.get("/api/jobs/demo/lyrics/sources").json()["letras"] == {
+        "url": "https://www.letras.mus.br/demo-band/sing-it-loud/", "title": "Sing It Loud", "artist": "Demo Band"}
+    demo.lyrics_source("letras.json").write_text('{"url": "javascript:alert(1)"}')
+    assert client.get("/api/jobs/demo/lyrics/sources").json()["letras"] is None
+    r = client.put("/api/jobs/demo/lyrics/user", json={"text": "my pasted lyrics", "run": False})
+    assert r.json() == {"saved": True, "run": None}
+
+
 def test_logs_tail(client, demo):
     demo.log("align").write_text("".join(f"line {i}\n" for i in range(500)))
     r = client.get("/api/jobs/demo/logs/align?lines=3").json()
