@@ -36,6 +36,23 @@ uv run karaoke status <job_id>
 
 Each job lives in `data/jobs/<youtube id>/`. Its layout is documented in [PLAN.md §3](PLAN.md).
 
+## Web UI
+
+```bash
+cd web && npm install && npm run build && cd ..   # once, and after UI changes
+uv run karaoke serve                              # http://127.0.0.1:8765
+```
+
+Paste a YouTube link to make a song; follow the steps live; fix the lyrics while they play over the
+instrumental (click a word to jump there, nudge it by 50 ms, retype a line, or tap Space along with the
+song); pick a background image; render a preview or the final video. Edits are saved to
+`lyrics.final.json` as `manual` words, which a re-sync never overwrites. Changes made to the job folder
+by the CLI or a Claude session show up in the open page without a reload.
+
+For UI work, run `npm run dev` in `web/` next to `karaoke serve` (Vite proxies `/api`).
+`npm test` runs the UI tests, `npm run typecheck` the type check, and `npm run gen:types`
+regenerates `web/src/types/generated/` from `docs/schema/` after `uv run karaoke schema`.
+
 ## Development
 
 ```bash
