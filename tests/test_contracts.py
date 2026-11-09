@@ -87,7 +87,13 @@ def test_runner_caches_and_reruns_on_input_change(demo_no_audio, monkeypatch):
     assert calls == [StageName.align]
 
 
-def test_runner_records_failures(demo_no_audio):
+def test_runner_records_failures(demo_no_audio, monkeypatch):
+    import karaoke.stages.ingest as ingest
+
+    def boom(ctx):
+        raise NotImplementedError("planted failure")
+
+    monkeypatch.setattr(ingest, "run", boom)  # in-process stage: no network
     store = JobStore(demo_no_audio.root.parent)
     with pytest.raises(NotImplementedError):
         run_job("demo", only=[StageName.ingest], store=store)
@@ -101,7 +107,8 @@ def test_isolated_stage_runs_in_child_and_reports_errors(demo_no_audio):
 
     assert STAGE_BY_NAME[StageName.separate].isolated and STAGE_BY_NAME[StageName.transcribe].isolated
     store = JobStore(demo_no_audio.root.parent)
-    with pytest.raises(IsolatedStageError, match="NotImplementedError"):
+    # demo_no_audio has no audio.wav, so the real separate stage fails inside the child process
+    with pytest.raises(IsolatedStageError):
         run_job("demo", only=[StageName.separate], store=store)
     assert store.load("demo").stages[StageName.separate].status == StageStatus.failed
     assert "failed in child process" in demo_no_audio.log("separate").read_text()

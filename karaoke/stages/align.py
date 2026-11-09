@@ -13,10 +13,66 @@ The lyrics text decides the WORDS and whisper decides the TIMING (PLAN.md §4 "A
 6. If a previous lyrics.final.json exists, words with ``origin`` manual or ai are PRESERVED
    (matched by line id plus word index, or by text).
 If chosen is ``whisper``, lines come from transcript segments and are all flagged ``low_confidence``.
+
+The algorithm lives in ``karaoke/align/core.py``; this module only reads and writes job files.
 """
+
+from __future__ import annotations
+
+import time
 
 from karaoke.pipeline import StageContext
 
 
 def run(ctx: StageContext) -> None:
-    raise NotImplementedError("align: Phase 1, workstream D")
+    from karaoke.align.core import align_lyrics
+    from karaoke.align.tokens import parse_chosen_text, parse_lrc
+    from karaoke.models import LyricsChoice, LyricsFinal, LyricsSourceName, Meta, Transcript
+    from karaoke.store import read_model, read_model_opt, write_model
+    from karaoke.validate import validate_lyrics
+
+    p = ctx.paths
+    t0 = time.monotonic()
+    transcript = read_model(p.transcript, Transcript)
+    choice = read_model_opt(p.lyrics_choice, LyricsChoice) or LyricsChoice(chosen=LyricsSourceName.whisper)
+    meta = read_model_opt(p.meta, Meta)
+    previous = None
+    if p.lyrics_final.exists():
+        try:
+            previous = read_model(p.lyrics_final, LyricsFinal)
+        except Exception as exc:  # noqa: BLE001 — a broken old file must not block a re-run
+            ctx.log.warning("ignoring unreadable previous lyrics.final.json: %s", exc)
+
+    lines = []
+    source = choice.chosen
+    if source != LyricsSourceName.whisper:
+        if p.lyrics_chosen_text.exists():
+            lines = parse_chosen_text(p.lyrics_chosen_text.read_text(encoding="utf-8"))
+        if not lines:
+            ctx.log.warning("chosen.txt is missing or empty; falling back to the whisper text")
+            source = LyricsSourceName.whisper
+    lrc = None
+    lrc_path = p.lyrics_source("lrclib.lrc")
+    if choice.use_line_timings and lrc_path.exists():
+        lrc = parse_lrc(lrc_path.read_text(encoding="utf-8"))
+    ctx.progress(0.2, f"aligning {sum(len(ln.words) for ln in lines)} lyric words")
+
+    lf, stats = align_lyrics(
+        lines, transcript, lrc=lrc, use_line_timings=bool(choice.use_line_timings and lrc),
+        duration=meta.duration if meta else None,
+        language=choice.language or (transcript.language if transcript.language in ("pt", "en") else None),
+        text_source=source, previous=previous,
+    )
+    for issue in validate_lyrics(lf, meta.duration if meta else None):
+        ctx.log.warning("validation: %s", issue)
+    for lost in stats.lost_edits:
+        ctx.log.warning("could not place a preserved edit: %s", lost)
+    if stats.lrc_disabled_reason:
+        ctx.log.warning("LRC anchors ignored: %s", stats.lrc_disabled_reason)
+    write_model(p.lyrics_final, lf)
+    flagged = sum(bool(ln.flags) for ln in lf.lines)
+    msg = (f"{len(lf.lines)} lines, {stats.matched + stats.fuzzy}/{stats.words} words heard, "
+           f"{stats.interpolated} interpolated, {flagged} lines flagged, "
+           f"{len(lf.unmatched_audio)} unmatched audio regions ({time.monotonic() - t0:.2f}s)")
+    ctx.log.info("stats: %s", stats)
+    ctx.progress(1.0, msg)

@@ -72,3 +72,29 @@ The reference is the 53 line starts of the cover's own synced LRC (hand-made, ab
 - **Primary aligner: workstream D's DP** over whisper words (run without the lossy VAD), plus interpolation, plus **LRC line anchors when the duration matches** (as it does for the cover).
 - **stable-ts is not a dependency.** It stays in the `spike` group as an optional experiment for later: forced alignment *per line window* between DP/LRC anchors could fix the interpolated gaps much more cheaply than whole-song alignment.
 - Workstream D's acceptance on the cover: ≥ 90 % of lines within 0.5 s of the LRC starts. Workstream B's VAD fix has to land first.
+
+# Phase 1 end-to-end (2026-11-09)
+
+`uv run karaoke run <id>` on both test songs, run one after the other. The final 1080p video is written to `output/karaoke.mp4`.
+
+| Stage | Cover (220 s, EN) | Sacal (153 s, PT-BR) |
+|---|---|---|
+| ingest | 5.7 s (mp4 already present) | 5.8 s |
+| separate (Kim_Vocal_2) | 208 s (RTF 0.87) | 137 s (RTF 0.80) |
+| lyrics_fetch | 0.8 s: LRCLIB synced, Δ0.3 s, line timings on | 2.0 s: nothing found, whisper fallback |
+| transcribe | 77 s, 195 words | 81 s, 340 words, detected `pt` |
+| align | 0.1 s, 189/237 words heard, 16 lines flagged | 0.1 s, 51 lines, all flagged (no lyrics source) |
+| render (1080p, x264 medium) | 92 s | ~60 s |
+| **total** | **about 6.5 min** | **about 4.75 min** |
+
+**Alignment on the cover** (line starts vs the cover's own synced LRC, with LRC anchors on):
+- All 53/53 lines are placed.
+- Median error is 0.18 s. 58 % of lines are within 0.3 s and 74 % within 0.5 s.
+- The worst line is 2.4 s off. There are no wrong-repetition jumps, which Phase 0 had at 18–26 s.
+- 48 words were interpolated; most are vocalisations ("oh") and the dense outro.
+- The ≥ 90 %-within-0.5 s target is **not met yet**. The remaining misses are what the lyrics-review skill and the UI's tap-to-sync are for.
+
+**Visual check of the frames:**
+- The fill tracks mid-word, the next line waits dimmed in the alternate row, and instrumental gaps are empty until the countdown.
+- PT accents render correctly.
+- **Known issue:** in whisper-fallback songs (no lyrics source), lines follow whisper's phrasing. Sometimes a phrase is split across lines, and whisper adds a trailing "…". The AI review skill should repair the line breaks.

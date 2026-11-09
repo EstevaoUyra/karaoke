@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import time
 import traceback
 from collections.abc import Callable
@@ -114,12 +115,15 @@ STAGES: list[StageSpec] = [
         # The lyrics prompt is a soft input (not hashed): editing lyrics must not re-run whisper.
         inputs=lambda p: [p.vocals],
         outputs=lambda p, j: [p.transcript],
-        settings=lambda j, s: {"model": s.whisper_model, "language": j.settings.language},
+        # "method" is bumped whenever the clip/retry logic changes, so old transcripts are redone.
+        settings=lambda j, s: {"model": s.whisper_model, "language": j.settings.language,
+                               "prompt": os.environ.get("KARAOKE_WHISPER_PROMPT", "none"), "method": 2},
         isolated=True,
     ),
     StageSpec(
         StageName.align,
-        inputs=lambda p: [p.transcript, p.lyrics_choice, p.lyrics_chosen_text, p.lyrics_source("lrclib.lrc")],
+        inputs=lambda p: [p.transcript, p.lyrics_choice, p.lyrics_chosen_text, p.lyrics_source("lrclib.lrc"),
+                          p.meta],
         outputs=lambda p, j: [p.lyrics_final],
     ),
     StageSpec(

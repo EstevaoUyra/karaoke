@@ -12,8 +12,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Homebrew's plain `ffmpeg` has no libass; `ffmpeg-full` (keg-only) does.
+# Homebrew's plain `ffmpeg` has no libass. Candidates with libass, in order: the minimal build from
+# scripts/build_ffmpeg.sh, then Homebrew `ffmpeg-full` (keg-only; impractical to build on Intel).
 _FFMPEG_FULL_CANDIDATES = [
+    Path.home() / ".local" / "opt" / "ffmpeg-karaoke" / "bin",
     Path("/usr/local/opt/ffmpeg-full/bin"),
     Path("/opt/homebrew/opt/ffmpeg-full/bin"),
 ]

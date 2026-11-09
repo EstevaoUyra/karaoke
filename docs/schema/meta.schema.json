@@ -141,6 +141,13 @@
       ],
       "default": null,
       "title": "Clean Title"
+    },
+    "clean_extra": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Clean Extra",
+      "type": "array"
     }
   },
   "required": [
