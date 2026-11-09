@@ -73,7 +73,7 @@ export function PasteLyrics({ jobId, textSource, running }: { jobId: string; tex
               setState("idle");
             }} />
           <div className="row">
-            <button className="primary" disabled={state === "saving" || running} onClick={() => save(true)}>
+            <button className="primary" disabled={state === "saving" || running || (!text.trim() && !hasUser)} onClick={() => save(true)}>
               Save and re-sync
             </button>
             <button disabled={state === "saving"} onClick={() => save(false)}>Save only</button>
