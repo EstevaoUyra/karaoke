@@ -255,7 +255,7 @@ def align_lyrics(
     fixed = [w.kept is not None for w in words]
     enforce_monotonic(times, fixed, duration)
     if envelope is not None:
-        stats.pauses_trimmed = trim_words(envelope, times, fixed)
+        stats.pauses_trimmed = trim_words(envelope, times, fixed, [w.text for w in words])
 
     out_lines = _build_lines(lines, words, times, raw, anchors if use_line_timings else {}, preserved)
     unmatched = _unmatched(toks, used_w, looped)

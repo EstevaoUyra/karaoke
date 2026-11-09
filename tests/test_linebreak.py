@@ -135,3 +135,47 @@ def test_continuous_singing_and_fixed_words_are_untouched():
     env2 = _env([(1.0, 1.5, -20.0)])
     fixed = [[1.0, 3.0]]
     assert trim_words(env2, fixed, [True]) == 0 and fixed == [[1.0, 3.0]]
+
+
+# --------------------------------------------------------------------------- pitch pauses and onsets
+
+
+def _pitched_env(db_segments, pitched, total=12.0):
+    env = _env(db_segments, total)
+    vp = np.zeros(int(total / 0.04), dtype=np.float32)
+    for s, e in pitched:
+        vp[int(s / 0.04):int(e / 0.04)] = 0.7
+    env.voiced_prob = vp
+    return env
+
+
+def test_words_whisper_put_in_a_loud_unpitched_pause_move_after_it():
+    # sung 1-3 s, a 4 s pause that stays loud (breath, noise) but has no pitch, sung again 7-9 s
+    env = _pitched_env([(1.0, 3.0, -20.0), (3.0, 7.0, -26.0), (7.0, 9.0, -20.0)], [(1.0, 3.0), (7.0, 9.0)])
+    texts = ["sing", "it", "now", "go", "on"]
+    times = [[1.0, 2.0], [2.0, 3.0], [3.0, 4.5], [4.5, 7.4], [7.4, 8.0]]  # "now go" stretched over the pause
+    trim_words(env, times, texts=texts)
+    assert times[1][1] <= 3.2  # "it" ends where the singing stops
+    assert times[2][0] >= 6.8 and times[3][1] <= 7.45  # "now go" are sung when it resumes
+    assert times[4] == [7.4, 8.0]
+
+
+def test_loud_unpitched_singing_is_not_a_pause():
+    # raspy singing: as loud as the rest, no pitch, words of normal length
+    env = _pitched_env([(1.0, 9.0, -20.0)], [(1.0, 3.0), (7.0, 9.0)])
+    texts = ["a", "raspy", "line", "sung", "here"]
+    times = [[1.0, 2.0], [3.2, 4.0], [4.0, 5.0], [5.0, 6.0], [6.0, 7.0]]
+    before = [t[:] for t in times]
+    trim_words(env, times, texts=texts)
+    assert times == before
+
+
+def test_words_inside_a_held_note_move_to_the_next_onset():
+    # "boy" held from 1.0 (pitched, slowly fading), next phrase starts with a sharp onset at 6.0
+    db = [(1.0, 3.0, -18.0), (3.0, 5.6, -24.0), (5.6, 6.0, -45.0), (6.0, 8.0, -18.0)]
+    env = _pitched_env(db, [(1.0, 5.6), (6.0, 8.0)])
+    texts = ["boy", "they", "will", "come"]
+    times = [[1.0, 1.4], [1.4, 3.5], [3.5, 6.2], [6.2, 6.8]]
+    trim_words(env, times, texts=texts)
+    assert 5.9 <= times[1][0] and times[2][1] <= 6.25  # moved to the onset, before "come"
+    assert 2.9 <= times[0][1] <= 5.9  # "boy" holds while it is loud, not through the fade

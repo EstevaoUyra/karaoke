@@ -101,7 +101,7 @@ def whisper_lines(tokens: list[WToken], duration: float | None, envelope=None) -
         from karaoke.align.voicing import trim_words
 
         times = [[t.start, t.end] for t in tokens]
-        trim_words(envelope, times)
+        trim_words(envelope, times, texts=[t.text for t in tokens])
         tokens = [dataclasses.replace(t, start=s, end=e) for t, (s, e) in zip(tokens, times, strict=True)]
     groups = group_lines(tokens)
     times = [[t.start, t.end] for g in groups for t in g]

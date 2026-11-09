@@ -110,6 +110,20 @@ The reference is the 53 line starts of the cover's own synced LRC (hand-made, ab
   - With the 0.6 s rule, cover line starts are unchanged: 31/53 within 0.3 s, 39/53 within 0.5 s,
     median 0.18 s.
   - Sacal is sung almost continuously, so it barely changes.
+- **Pauses that stay loud (Sacal).** Loudness alone missed Sacal's pauses. At 16–20 s the stem
+  stays at -25 dB (breath, noise, leakage) with no singing. At 22–27 s it is the echo of a held
+  "boy". In both places whisper stretched "Eles vão" across the gap, so the fill crawled over it.
+  `voicing.py` now uses two more signals:
+  - **pyin pitch.** A stretch of 1 s or more with no pitch counts as a pause if it's at least 12 dB
+    quieter than the singing around it, or if whisper stretched a word across it.
+  - **Syllable onsets.** These are sharp 10 dB rises. Words in a stretch of 1.5 s or more with no
+    onset are moved, but only if whisper made them at least 3× their natural length and the next
+    word starts at the next onset. The word before keeps its held note until the note fades.
+  - In Sacal, only those two places changed (5 words). In the cover, 7 line starts moved later.
+    At each one the stem is silent (−77 dB) at the LRC time and the new start matches the audio
+    onset, so the LRC is early there. Against the LRC the cover now scores 28/53 within 0.3 s,
+    37/53 within 0.5 s, median 0.28 s.
+  - Pitch tracking adds about 20–35 s to `align` per song.
 - **Dots.** Every pause of 2 s or more gets the three dots: the intro, between lines and inside a
   line. They go out one per beat, on a beat from librosa's tempo of the instrumental, folded into
   0.55–1.2 s. The cover's beat is 0.98 s, Sacal's 0.79 s.
