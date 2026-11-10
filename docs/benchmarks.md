@@ -364,3 +364,29 @@ Tried, not adopted:
 - **Chords from the instrumental** (24 triads, Viterbi-smoothed, as the tie-break for wavering
   notes): 64.4 → 64.8 % alone; the instrumental's chroma itself 66.0 %; neither adds anything
   on top of the song-profile rule (67.6 %), and a local profile (±20–40 s) is slightly worse.
+
+## Melody: where the remaining errors are (2026-11-10, method 4)
+
+- **Confidence predicts correctness.** By our note's CREPE confidence (all eight songs):
+
+  | confidence | share of notes | exact | timing-tolerant |
+  |---|---|---|---|
+  | under 0.3 | 7 % | 16 % | 34 % |
+  | 0.3–0.45 | 10 % | 43 % | 56 % |
+  | 0.45–0.6 | 17 % | 56 % | 69 % |
+  | 0.6–0.75 | 31 % | 70 % | 79 % |
+  | over 0.75 | 34 % | 80 % | 89 % |
+
+  The roll guide now draws notes under 0.4 faint (`render.roll.UNSURE_CONF`), as it already did for
+  unsteady ones. Solid notes (74 % of all): 74 % exact, 83 % timing-tolerant. Faint: 37 % / 53 %.
+  `score_gold.py` prints the scores over the sure notes (`pitch|sure`: mean 75 %, loose 82 %).
+- **Bohemian Rhapsody is two songs.** The solo ballad (50–135 s) scores 75–100 % per passage;
+  the a cappella opening (29–50 s) and the opera section (190–245 s) score 10–40 %, with our
+  notes 8–24 semitones below the transcribed line: a choir, where "the melody" is a choice.
+- **Tudo Que Você Podia Ser**: every missing note is in 80–100 s, where the vocal stem is silent
+  (−55 dB) and there are no lyrics: the lead sheet covers an unsung passage. On the notes we do
+  have it scores 89 %.
+- **Respect and Billie Jean**: errors are spread evenly over the song (35–80 % per 20 notes) with
+  no constant offset, and the stem and the isolated lead agree. Note by note, many are fast
+  alternations in the transcription (66–64–66 at 0.13 s) where the voice stays near one pitch and
+  only dips: the transcribers wrote the intended figure. Not fixable from the audio alone.

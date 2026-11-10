@@ -27,6 +27,9 @@ Columns:
 - ``pitch≥`` / ``loose≥``: the same two over reference notes at least ``--min-dur`` seconds long
   (the time to the next onset where the reference has no note ends).
 
+- ``sure``: share of reference notes where our note has confidence of at least ``SURE_CONF`` (the
+  guide draws the others faint); ``pitch|sure`` / ``loose|sure``: the two scores over those.
+
 After the songs comes the same split by note length, over all songs together.
 
 - ``lag``: the time shift of our notes (within ±0.3 s) that maximises ``pitch``, and that best
@@ -44,6 +47,7 @@ GOLD = Path("data/gold")
 JOBS = Path("data/jobs")
 PITCH_WINDOW_S = 0.5
 PITCH_SKIP_S = 0.03  # the first moments of a note are the consonant / the scoop
+SURE_CONF = 0.4  # as render.roll.UNSURE_CONF: notes below it are drawn faint in the guide
 TOL_S = 0.15  # timing slack of the loose score
 BUCKETS = ((0.0, 0.15), (0.15, 0.3), (0.3, 0.6), (0.6, 99.0))  # note lengths, seconds
 
@@ -137,7 +141,9 @@ def score(song: Path, tol: float, min_dur: float = 0.2) -> dict | None:
         return None
     refs, spans, octave_known = load_reference(ref)
     refs = [r for r in refs if in_spans(r.start, spans)]
-    ours_all = [N(n["start"], n["end"], n["midi"]) for n in json.loads(mel.read_text())["notes"]]
+    raw = json.loads(mel.read_text())["notes"]
+    ours_all = [N(n["start"], n["end"], n["midi"]) for n in raw]
+    sure = [N(n["start"], n["end"], n["midi"]) for n in raw if n.get("conf", 1.0) >= SURE_CONF]
     ours = [o for o in ours_all if in_spans(o.start, spans)]
     out = {"song": song.name, "source": ref["source"].split(",")[0].split(" (")[0][:12], "octave_known": octave_known,
            "ref": len(refs), "ours": len(ours)}
@@ -149,6 +155,11 @@ def score(song: Path, tol: float, min_dur: float = 0.2) -> dict | None:
     out["loose_long"] = sum(x[3] for x in long) / len(long) if long else 0.0
     out["long_share"] = len(long) / len(notes)
     out["notes"] = notes
+    # reference notes where the note we show is one the tracker was sure of
+    kept = [(r, our_pitch(r, ours_all)) for r in refs if our_pitch(r, sure) == our_pitch(r, ours_all) is not None]
+    out["sure"] = len(kept) / len(refs)
+    out["pitch_sure"] = sum(p == r.midi for r, p in kept) / len(kept) if kept else 0.0
+    out["loose_sure"] = sum(p == r.midi or loose_hit(r, ours_all) for r, p in kept) / len(kept) if kept else 0.0
     out.update(onset_scores(refs, ours, tol))
     key = "pitch" if octave_known else "pc"
     lags = [k / 100 for k in range(-30, 31, 2)]
@@ -166,8 +177,9 @@ def main() -> None:
     args = ap.parse_args()
     dirs = sorted(d for d in GOLD.iterdir() if (d / "reference.json").exists() and (not args.songs or d.name in args.songs))
     rows = [r for d in dirs if (r := score(d, args.tol, args.min_dur))]
-    cols = ["found", "pitch", "loose", "pitch_long", "loose_long", "near", "pc", "oct", "on_F"]
-    head = {"near": "±1", "pitch_long": f"pitch≥{args.min_dur:g}s", "loose_long": f"loose≥{args.min_dur:g}s"}
+    cols = ["found", "pitch", "loose", "pitch_long", "loose_long", "sure", "pitch_sure", "loose_sure", "near", "oct", "on_F"]
+    head = {"near": "±1", "pitch_long": f"pitch≥{args.min_dur:g}s", "loose_long": f"loose≥{args.min_dur:g}s",
+            "pitch_sure": "pitch|sure", "loose_sure": "loose|sure"}
     print(f"{'song':24s} {'ref':>4s} {'ours':>4s} " + " ".join(f"{head.get(c, c):>10s}" for c in cols) + "   lag")
     for r in rows:
         mark = "" if r["octave_known"] else "  (octave unknown: read pc)"
