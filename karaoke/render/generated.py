@@ -1,11 +1,19 @@
 """Generated backgrounds: moving colour that follows the music. No image, no model.
 
 A ``generated`` scene source has ``value = "<style>:<hex>,<hex>,..."`` (the colours are optional).
-The only style so far is ``aurora``: a slow field of drifting colour bands.
+Styles:
 
-- It moves faster and is brighter where the song is louder (``structure.json``'s loudness curve).
-- It swells a little on every beat.
-- Its colours shift at each section boundary.
+- ``aurora``: a slow field of drifting colour bands.
+- ``pulse``: a glow rising from the bottom of the frame that breathes with the beat, over a dark
+  wash of the first colour. The most rhythmic one.
+- ``drift``: soft discs of light drifting upwards, more of them and brighter where the song is
+  louder. The calmest one.
+
+All of them:
+
+- move faster and are brighter where the song is louder (``structure.json``'s loudness curve);
+- swell a little on every beat;
+- shift their colours at each section boundary.
 
 Without a structure file it still moves, at a constant pace.
 
@@ -26,7 +34,8 @@ from karaoke.models import Structure
 if TYPE_CHECKING:
     import numpy as np
 
-STYLES = ("aurora",)
+STYLES = ("aurora", "pulse", "drift")
+DISCS = 26  # discs of light in the "drift" style
 DEFAULT_COLORS = ("#3a1c71", "#d76d77", "#1f6f8b", "#ffaf7b")
 GEN_SIZE = (320, 180)
 BASE_SPEED = 0.10  # field phase per second in silence ...
@@ -120,22 +129,47 @@ def frames(value: str, fps: int, lo: int, hi: int, structure: Structure | None, 
     tl = Timeline(structure, max(duration, hi / fps))
     w, h = size
     x, y = np.meshgrid(np.linspace(0.0, 1.0, w), np.linspace(0.0, 1.0, h))
-    spatial = [2 * np.pi * (kx * x + ky * y) + ph for kx, ky, _, ph, _ in WAVES]
-    weight = sum(wt for *_, wt in WAVES)
+    style, _ = parse(value)
     # a cyclic palette, as a lookup table
     pal = np.asarray([*colors, colors[0]], dtype=float)
     pos = np.linspace(0.0, 1.0, len(pal))
     lut = np.stack([np.interp(np.linspace(0.0, 1.0, 512, endpoint=False), pos, pal[:, c]) for c in range(3)], axis=1)
+
+    def colour(idx):
+        return lut[(np.asarray(idx) % 1.0 * 512).astype(int) % 512]
+
     # darker towards the top and the edges: depth, and calmer where the pitch guide sits
     shade = (0.72 + 0.28 * y) * (1.0 - 0.25 * (2 * x - 1) ** 2)
+    spatial = [2 * np.pi * (kx * x + ky * y) + ph for kx, ky, _, ph, _ in WAVES]
+    weight = sum(wt for *_, wt in WAVES)
+    rng = np.random.default_rng(7)  # the discs of "drift": fixed, so every clip draws the same ones
+    disc = rng.uniform(0.0, 1.0, (DISCS, 5))  # x, y phase, size, speed, palette position
+    aspect = w / h
     for f in range(lo, hi):
         t = f / fps
-        e, ph = tl.energy(t), tl.phase(t)
-        field = sum(wt * np.sin(sp + 2 * np.pi * ph * speed)
-                    for sp, (_, _, speed, _, wt) in zip(spatial, WAVES, strict=True)) / weight
-        idx = ((field * 0.5 + 0.5) * 0.6 + tl.shift(t)) % 1.0
-        level = BASE_LEVEL + ENERGY_LEVEL * e + BEAT_LEVEL * e * tl.beat(t)
-        rgb = lut[(idx * 512).astype(int) % 512] * (shade * level)[..., None]
+        e, ph, shift, beat = tl.energy(t), tl.phase(t), tl.shift(t), tl.beat(t)
+        level = BASE_LEVEL + ENERGY_LEVEL * e + BEAT_LEVEL * e * beat
+        if style == "aurora":
+            field = sum(wt * np.sin(sp + 2 * np.pi * ph * speed)
+                        for sp, (_, _, speed, _, wt) in zip(spatial, WAVES, strict=True)) / weight
+            rgb = colour((field * 0.5 + 0.5) * 0.6 + shift) * (shade * level)[..., None]
+        elif style == "pulse":
+            # a glow centred below the frame; its reach grows with the loudness and jumps on the beat
+            reach = 0.45 + 0.35 * e + 0.12 * e * beat
+            cx = 0.5 + 0.12 * np.sin(2 * np.pi * ph * 0.25)
+            dist = np.sqrt(((x - cx) * aspect) ** 2 + (1.08 - y) ** 2)
+            glow = np.exp(-(dist / reach) ** 2)
+            base = colour(shift) * 0.16 * shade[..., None]
+            rgb = base + colour(0.33 + shift + 0.25 * dist) * (glow * (0.25 + 0.75 * level))[..., None]
+        else:  # drift
+            rgb = colour(shift) * (0.14 + 0.10 * e) * shade[..., None]
+            shown = int(round(DISCS * (0.35 + 0.65 * e)))
+            for dx, dy, size_, speed, cpos in disc[:shown]:
+                r = 0.05 + 0.10 * size_
+                yy = 1.2 - ((dy + ph * (0.25 + 0.5 * speed)) % 1.4)  # rises, wraps below the frame
+                xx = dx + 0.04 * np.sin(2 * np.pi * (ph * 0.3 + dy))
+                d2 = ((x - xx) * aspect) ** 2 + (y - yy) ** 2
+                rgb = rgb + colour(cpos + shift) * (np.exp(-d2 / (2 * r * r)) * (0.10 + 0.16 * level))[..., None]
         yield np.clip(rgb, 0, 255).astype(np.uint8)
 
 

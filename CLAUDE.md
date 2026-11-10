@@ -5,7 +5,7 @@ The plan and architecture are in `PLAN.md`; read it first. Benchmark findings ar
 ## Commands
 - `uv run pytest`: fast tests (offline, fixtures only). `uv run pytest -m slow` runs real models and the network.
 - `uv run ruff check karaoke tests spikes`
-- `uv run karaoke --help`: commands `new`, `run [--from STAGE | --only STAGE]`, `stage`, `status`, `list`, `validate`, `schema`, `background <job> <preset>`, `serve`.
+- `uv run karaoke --help`: commands `new`, `run [--from STAGE | --only STAGE]`, `stage`, `status`, `list`, `validate`, `schema`, `background <job> <preset>`, `bg-brief`, `bg-sheet`, `bg-check`, `bg-image` (art-direction tools, see the `karaoke-backgrounds` skill), `serve`.
 - Web UI: `cd web && npm install && npm run build`, then `uv run karaoke serve` (http://127.0.0.1:8765). `npm test` / `npm run typecheck` in `web/`.
 - `uv run python tests/fixtures/make_demo.py data/jobs` creates the synthetic `demo` job (24 s, known ground truth).
 

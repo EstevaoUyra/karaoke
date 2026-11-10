@@ -130,6 +130,75 @@ def background(
     console.print(f"background.json: {len(bg.scenes)} scene(s), style {bg.style}")
 
 
+@app.command("bg-brief")
+def bg_brief(job_id: str) -> None:
+    """Print what an art director needs to know about the job (JSON): sections with their lines,
+    materials, the cover's colours, the current scenes."""
+    from karaoke.bg_tools import brief
+
+    print(json.dumps(brief(_store().paths(job_id)), indent=2, ensure_ascii=False))
+
+
+@app.command("bg-sheet")
+def bg_sheet(
+    job_id: str,
+    out: Annotated[Path | None, typer.Option(help="Default: output/bg_sheet.jpg in the job.")] = None,
+) -> None:
+    """Draw every scene with the lyrics over it into one picture, and print each scene's legibility."""
+    from karaoke.bg_tools import contact_sheet
+    from karaoke.config import get_settings
+
+    p = _store().paths(job_id)
+    out = out or p.output_dir / "bg_sheet.jpg"
+    for row in contact_sheet(p, out, get_settings().ffmpeg_bin):
+        console.print(f"{row['scene']:<6} at {row['shown_at']:>6.1f}s  {row['section']:<12} behind the lyrics: "
+                      f"mean {row['mean']:.2f}  brightest {row['p95']:.2f}  detail {row['detail']:.2f}")
+    console.print(f"wrote {out}")
+
+
+@app.command("bg-check")
+def bg_check(
+    job_id: str,
+    before: Annotated[Path | None, typer.Option(help="A copy of background.json from before the changes: "
+                                                     "its locked scenes must be unchanged.")] = None,
+    fast: Annotated[bool, typer.Option(help="Skip drawing the scenes (no legibility check).")] = False,
+) -> None:
+    """Check background.json: the contract, locked scenes, scene changes, legibility. Exit 1 on errors."""
+    from karaoke.bg_tools import check
+    from karaoke.config import get_settings
+    from karaoke.models import Background
+    from karaoke.store import read_model
+
+    old = read_model(before, Background) if before else None
+    found = check(_store().paths(job_id), None if fast else get_settings().ffmpeg_bin, old)
+    for f in found:
+        console.print(f"[{'red' if f.severity == 'error' else 'yellow'}]{f}[/]")
+    errors = sum(f.severity == "error" for f in found)
+    console.print(f"{errors} error(s), {len(found) - errors} warning(s)")
+    raise typer.Exit(1 if errors else 0)
+
+
+@app.command("bg-image")
+def bg_image(
+    job_id: str,
+    url: str,
+    credit: Annotated[str, typer.Option(help="Author and title, as the source states them.")],
+    license_: Annotated[str, typer.Option("--license", help="E.g. 'CC BY-SA 4.0', 'Public domain'.")],
+    page: Annotated[str | None, typer.Option(help="The page describing the picture.")] = None,
+) -> None:
+    """Download a picture into the job's assets/bg and record its credit. Prints the path to use
+    in background.json."""
+    from karaoke.bg_tools import add_image
+
+    p = _store().paths(job_id)
+    try:
+        dest = add_image(p, url, credit, license_, page)
+    except Exception as exc:  # noqa: BLE001 — shown to the caller
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    print(p.rel(dest))
+
+
 @app.command()
 def serve(
     host: Annotated[str | None, typer.Option(help="Default: KARAOKE_HOST or 127.0.0.1.")] = None,
