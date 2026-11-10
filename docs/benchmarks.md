@@ -156,3 +156,62 @@ The reference is the 53 line starts of the cover's own synced LRC (hand-made, ab
 - **letras.mus.br.** It is searched through its public suggestion endpoint, and the song URL is
   saved to `lyrics/sources/letras.json`. Its pages refuse automated clients (403, even
   `robots.txt`), so the text has to be pasted by the user into `lyrics/sources/user.txt`.
+
+# Melody (pitch guide) accuracy (2026-11-09)
+
+Complaint: the pitch guide "has a lot of missing places and does not seem so correct". Nobody can
+listen in CI, so `spikes/eval_melody.py` measures proxies against the two test songs' lyrics
+(`lyrics.final.json` word timings) and independent F0 trackers (`spikes/melody_trackers.py`):
+
+- `cover`: share of sung-word time with a note (`nonote`: seconds without), `gap words`: words no
+  note overlaps (the UI's "gaps"), `spill`: note time > 0.3 s from any word.
+- `agree[R]`: note frames within 50 cents of tracker R where R is confident; `oct[R]`: an octave off.
+- `pc`: the vocal stem's strongest CQT chroma bin equals the note's pitch class (notes synthesised to
+  audio for the `chroma` cosine, which tells the same story).
+
+**Where the old notes went missing** (`--gates`, share of sung-word time left after each gate):
+pyin finds a pitch in 88 % / 94 % (EN / PT) of word time, but only 40 % / 26 % passes its voicing
+probability ≥ 0.5; the steady-pitch rule adds ~11 points; short-run removal, the level gate and the
+word filter cost a few points each. pyin's voicing probability is low on a separated stem's singing,
+so the confidence gate, not the tracker's pitch, made the holes.
+
+**Trackers** (CPU, 4 cores; 10 ms hop for CREPE):
+
+| tracker | RTF | EN cover | PT cover | EN agree[pyin] | EN oct[pyin] |
+|---|---|---|---|---|---|
+| pyin (old gates) | 0.10 | 0.46 | 0.28 | (same tracker) | — |
+| pyin (new gates) | 0.10 | 0.63 | 0.72 | (same tracker) | — |
+| torchcrepe tiny | 0.17-0.23 | 0.92 | 0.94 | 0.82 | 2.3 % |
+| torchcrepe full | 2.6-2.7 | 0.94 | 0.96 | 0.82 | 1.0 % |
+
+**Before / after** (old: pyin + old gates; new: crepe-tiny + word prior; `@old` = accuracy on the
+frames the old version also had notes):
+
+| song | version | notes | cover | nonote | gap words | spill | agree[pyin] | agree[crepe-full] | oct[crepe-full] | pc | pc @old |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| EN | old | 242 | 0.457 | 72 s | 26.6 % | 11.2 % | (0.89) | 0.831 | 2.6 % | 0.79 | 0.79 |
+| EN | new | 381 | 0.919 | 11 s | 3.0 % | 7.4 % | 0.813 | 0.756 | 1.4 % | 0.69 | 0.77 |
+| PT | old | 144 | 0.284 | 75 s | 45.9 % | 2.5 % | (0.94) | 0.878 | 0 % | 0.84 | 0.84 |
+| PT | new | 377 | 0.940 | 6 s | 1.7 % | 2.7 % | 0.858 | 0.746 | 0.1 % | 0.67 | 0.83 |
+
+- Two trackers agree on only ~83-87 % of confident frames even where both are confident (the
+  ceiling of `agree`). On the frames the old version covered, the new notes are as accurate
+  (pc @old 0.77-0.83 vs 0.79-0.84). The new frames are harder (breathy, low, rap: speech-like
+  pitch, where chroma is weak), which lowers the totals.
+- Where pyin and CREPE disagree, CREPE-tiny and -full usually agree with each other and pyin jumps
+  octaves (EN 155-159 s: pyin 55/64, both CREPEs 74-76).
+- **Choice: torchcrepe tiny** (MIT, weights bundled with the package). Full CREPE adds 2-4 points of
+  coverage and halves the octave disagreement, but costs ~10 min per song on this CPU; it is
+  available as `KARAOKE_MELODY_TRACKER=crepe-full`. pyin is the fallback when torch fails.
+  The stage is now `isolated=True` (torch).
+- Not tried: RMVPE (code Apache-2.0, but the official repo publishes no weights; the copy RVC
+  redistributes has only a repo-level MIT tag, so the weights' licence is unclear), basic-pitch
+  (polyphonic note transcription, needs extra deps).
+- Gates now: words are a voicing prior (CREPE periodicity ≥ 0.15 with a smoothly moving pitch,
+  level gate 35 dB instead of 25 inside words); dropouts ≤ 0.2 s inside a word are bridged
+  before short runs are dropped; gaps ≤ 0.2 s between notes of one word are closed. A phrase-level
+  octave fix (median of ±3 s) was tried and made `oct[crepe-full]` worse (1.4 → 2.6 %): dropped.
+- Key: a third vote, the full mix's chroma, joins the notes and the instrumental (correlations
+  averaged). EN: D major (votes: notes D major, instrumental A major, mix D major; margin 0.21).
+  PT: G minor (notes D minor, instrumental G minor 0.87, mix D minor 0.42; margin 0.12).
+- Stage runtime (crepe-tiny, child process included): EN 43 s for 3:40, PT 32 s for 2:33.

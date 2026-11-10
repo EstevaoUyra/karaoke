@@ -34,6 +34,7 @@ dependencies = [
     "sse-starlette>=2.1",
     "python-multipart>=0.0.9",
     "watchfiles>=0.22",
+    "torchcrepe==0.0.24",
 ]
 
 [project.scripts]

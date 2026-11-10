@@ -16,7 +16,7 @@ The plan and architecture are in `PLAN.md`; read it first. Benchmark findings ar
   - `av<17`, because faster-whisper 1.2.1 breaks on PyAV 17+.
 - **Never run torch (separation, stable-ts) and faster-whisper/ctranslate2 in the same process.**
   - Their two libiomp5 copies deadlock.
-  - `separate` and `transcribe` are `isolated=True` stages in `karaoke/pipeline.py` and run in spawned child processes.
+  - `separate`, `transcribe` and `melody` (torchcrepe) are `isolated=True` stages in `karaoke/pipeline.py` and run in spawned child processes.
 - ffmpeg with libass is a minimal build from `scripts/build_ffmpeg.sh` in `~/.local/opt/ffmpeg-karaoke`. Homebrew `ffmpeg-full` is impractical on Intel: it has no bottles and compiles llvm and rust.
   - Use `get_settings().ffmpeg_bin`, never a bare `ffmpeg`, for anything that renders subtitles.
 - Whisper: energy-based voice regions plus the batched pipeline. Never use the Silero VAD (it drops sections). A lyrics prompt hurts accuracy and is opt-in via `KARAOKE_WHISPER_PROMPT`.

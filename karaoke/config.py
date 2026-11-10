@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     whisper_threads: int = Field(default_factory=lambda: os.cpu_count() or 4)
     separator_model: str = "Kim_Vocal_2.onnx"  # fast default (~1x real time); see docs/benchmarks.md
     separator_model_hq: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"  # ~10x real time
+    melody_tracker: str = "crepe-tiny"  # "crepe-tiny" | "crepe-full" | "pyin"; see docs/benchmarks.md
     separator_models_dir: Path = Path.home() / ".cache" / "audio-separator-models"
 
     # --- optional API keys (read from the unprefixed env names shown in .env.example) ---
