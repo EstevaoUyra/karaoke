@@ -6,6 +6,7 @@ import type * as BG from "./generated/background";
 import type * as JB from "./generated/job";
 import type { Meta } from "./generated/meta";
 import type { LyricsChoice } from "./generated/lyrics_choice";
+import type * as ML from "./generated/melody";
 
 type Full<T> = { [K in keyof T]-?: T[K] };
 
@@ -32,7 +33,21 @@ export type JobDoc = Omit<Full<JB.Job>, "settings" | "stages"> & {
 };
 export type { Meta, LyricsChoice };
 
-export const STAGES = ["ingest", "separate", "lyrics_fetch", "transcribe", "align", "backgrounds", "render"] as const;
+export type NoteDoc = Full<ML.Note>;
+export type KeyDoc = Full<ML.KeyEstimate>;
+export type MelodyDoc = Omit<Full<ML.Melody>, "notes" | "key"> & { notes: NoteDoc[]; key: KeyDoc | null };
+
+/** GET /api/jobs/<id>/melody/contour: the raw pitch track, downsampled (hz null = unvoiced). */
+export interface ContourDoc {
+  hop_s: number;
+  step_s: number;
+  t: number[];
+  hz: (number | null)[];
+  conf: number[];
+  stale: boolean;
+}
+
+export const STAGES = ["ingest", "separate", "lyrics_fetch", "transcribe", "align", "melody", "backgrounds", "render"] as const;
 export type StageName = (typeof STAGES)[number];
 
 // ---------------------------------------------------------------- API responses (karaoke/api)
@@ -70,7 +85,7 @@ export interface JobDetail {
   summary: JobSummary;
   files: Record<
     | "audio" | "instrumental" | "vocals" | "lyrics_final" | "background" | "preview_video" | "final_video"
-    | "user_lyrics" | "review_notes",
+    | "user_lyrics" | "review_notes" | "melody",
     FileInfo | null
   >;
   issues: Issue[];

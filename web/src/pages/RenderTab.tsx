@@ -101,6 +101,11 @@ export function RenderTab({ detail }: { detail: JobDetail }) {
             Title card in the intro
           </label>
         </div>
+        <label className="row" title={detail.files.melody ? "" : "Run the Melody step first"}>
+          <input type="checkbox" checked={rs.show_pitch} disabled={!detail.files.melody && !rs.show_pitch}
+            onChange={(e) => set("show_pitch", e.target.checked)} />
+          Pitch guide: the melody as bars on a staff at the top
+        </label>
         <button className="primary" disabled={busy || rendering || queue !== null || missing}>
           {rendering ? `Rendering ${Math.round(st.progress * 100)}%` : queue === "queued" ? "Waiting in the queue" :
             `Render ${rs.preset === "preview" ? "preview" : "final video"}`}

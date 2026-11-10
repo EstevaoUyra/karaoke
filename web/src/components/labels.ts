@@ -6,6 +6,7 @@ export const STAGE_LABEL: Record<StageName, string> = {
   lyrics_fetch: "Find lyrics",
   transcribe: "Transcribe",
   align: "Sync lyrics",
+  melody: "Melody",
   backgrounds: "Background",
   render: "Render video",
 };
@@ -16,6 +17,7 @@ export const STAGE_HELP: Record<StageName, string> = {
   lyrics_fetch: "LRCLIB, Genius, YouTube subtitles or your pasted text",
   transcribe: "Whisper listens to the vocal stem for word timings",
   align: "Lyrics words with Whisper's timing → lyrics.final.json",
+  melody: "The sung notes and the key, for the pitch guide",
   backgrounds: "The default background, unless you or the AI made one",
   render: "Subtitles, background and instrumental into the video",
 };

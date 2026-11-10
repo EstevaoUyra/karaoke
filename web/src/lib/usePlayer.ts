@@ -49,7 +49,7 @@ export function usePlayer(jobId: string, instrumentalVersion: number | null) {
   // re-render on play/pause/rate/volume changes
   useSyncExternalStore(
     (cb) => player.subscribe(cb),
-    () => `${player.playing}|${player.rate}|${player.vocals}|${player.duration}|${player.hasVocals}`,
+    () => `${player.playing}|${player.rate}|${JSON.stringify(player.mix)}|${player.duration}|${player.hasVocals}`,
   );
   return { player, loading, error, vocalsLoading, loadVocals };
 }
