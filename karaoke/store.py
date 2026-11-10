@@ -113,6 +113,11 @@ class JobPaths:
     def melody_f0(self) -> Path:
         return self.root / "cache" / "melody.f0.npz"  # raw pyin contour, reused while vocals.wav is unchanged
 
+    # structure (sections, energy, beats)
+    @property
+    def structure(self) -> Path:
+        return self.root / "structure.json"
+
     # backgrounds
     @property
     def background(self) -> Path:

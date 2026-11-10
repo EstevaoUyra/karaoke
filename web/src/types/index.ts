@@ -47,7 +47,7 @@ export interface ContourDoc {
   stale: boolean;
 }
 
-export const STAGES = ["ingest", "separate", "lyrics_fetch", "transcribe", "align", "melody", "backgrounds", "render"] as const;
+export const STAGES = ["ingest", "separate", "lyrics_fetch", "transcribe", "align", "melody", "structure", "backgrounds", "render"] as const;
 export type StageName = (typeof STAGES)[number];
 
 // ---------------------------------------------------------------- API responses (karaoke/api)
@@ -85,7 +85,7 @@ export interface JobDetail {
   summary: JobSummary;
   files: Record<
     | "audio" | "instrumental" | "vocals" | "lyrics_final" | "background" | "preview_video" | "final_video"
-    | "user_lyrics" | "review_notes" | "melody",
+    | "user_lyrics" | "review_notes" | "melody" | "structure",
     FileInfo | null
   >;
   issues: Issue[];

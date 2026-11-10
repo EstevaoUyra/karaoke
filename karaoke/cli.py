@@ -113,6 +113,24 @@ def validate(job_id: str) -> None:
 
 
 @app.command()
+def background(
+    job_id: str,
+    preset: Annotated[str, typer.Argument(help="gradient, palette, cover, stills, video or aurora.")],
+    replace_locked: Annotated[bool, typer.Option(help="Also replace scenes the user locked.")] = False,
+) -> None:
+    """Replace background.json with an instant preset (uses structure.json for the scene changes)."""
+    from karaoke.bg_presets import PresetError, apply_preset
+    from karaoke.config import get_settings
+
+    try:
+        bg = apply_preset(preset, _store().paths(job_id), get_settings().ffmpeg_bin, replace_locked=replace_locked)
+    except PresetError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    console.print(f"background.json: {len(bg.scenes)} scene(s), style {bg.style}")
+
+
+@app.command()
 def serve(
     host: Annotated[str | None, typer.Option(help="Default: KARAOKE_HOST or 127.0.0.1.")] = None,
     port: Annotated[int | None, typer.Option(help="Default: KARAOKE_PORT or 8765.")] = None,

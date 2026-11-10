@@ -95,8 +95,15 @@ def validate_background(bg: Background, paths: JobPaths, duration: float | None 
                 out.append(Issue("error", f, w, f"{src.type} scene without path"))
             elif not (paths.root / src.path).exists():
                 out.append(Issue("error", f, w, f"missing file {src.path}"))
-        elif src.type in ("color", "gradient") and not src.value:
+        elif src.type in ("color", "gradient", "generated") and not src.value:
             out.append(Issue("error", f, w, f"{src.type} scene without value"))
+        elif src.type == "generated":
+            from karaoke.render.generated import parse
+
+            try:
+                parse(src.value)
+            except ValueError as exc:
+                out.append(Issue("error", f, w, str(exc)))
         t = s.end
     if duration is not None and abs(t - duration) > 0.5:
         out.append(Issue("error", f, "scenes", f"scenes end at {t:.2f}, audio is {duration:.2f}s"))
@@ -111,6 +118,7 @@ _FILES = {
     "lyrics_final": "lyrics.final.json",
     "background": "background.json",
     "melody": "melody.json",
+    "structure": "structure.json",
 }
 
 

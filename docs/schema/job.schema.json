@@ -167,6 +167,7 @@
         "transcribe",
         "align",
         "melody",
+        "structure",
         "backgrounds",
         "render"
       ],

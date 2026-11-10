@@ -7,6 +7,7 @@ import io
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 
 from karaoke.api.deps import issue_dict, job_paths
 from karaoke.models import Background, BgSource, Meta
@@ -44,6 +45,47 @@ def put_background(request: Request, job_id: str, body: Background) -> dict:
     issues = _check(body, p)
     write_model(p.background, body)
     return {"background": body.model_dump(mode="json"), "issues": issues}
+
+
+@router.get("/jobs/{job_id}/structure")
+def get_structure(request: Request, job_id: str) -> dict:
+    from karaoke.models import Structure
+
+    st = read_model_opt(job_paths(request, job_id).structure, Structure)
+    if st is None:
+        raise HTTPException(404, "no structure.json yet: run the structure stage")
+    return st.model_dump(mode="json")
+
+
+class ApplyPreset(BaseModel):
+    name: str
+    replace_locked: bool = False
+
+
+@router.get("/jobs/{job_id}/background/presets")
+def list_presets(request: Request, job_id: str) -> dict:
+    """The instant presets, whether each can be made for this job, and whether the song's
+    structure is known (without it a preset is a single scene)."""
+    from karaoke.bg_presets import PRESETS, available
+
+    p = job_paths(request, job_id)
+    ok = available(p, read_model_opt(p.meta, Meta))
+    return {"presets": [{"name": n, "label": label, "available": ok[n]} for n, label in PRESETS.items()],
+            "has_structure": p.structure.exists()}
+
+
+@router.post("/jobs/{job_id}/background/preset")
+def apply_background_preset(request: Request, job_id: str, body: ApplyPreset) -> dict:
+    """Replace background.json with a preset. 409 if that would replace locked scenes."""
+    from karaoke.api.deps import state
+    from karaoke.bg_presets import PresetError, apply_preset
+
+    p = job_paths(request, job_id)
+    try:
+        bg = apply_preset(body.name, p, state(request).settings.ffmpeg_bin, replace_locked=body.replace_locked)
+    except PresetError as exc:
+        raise HTTPException(409 if "locked" in str(exc) else 422, str(exc)) from exc
+    return {"background": bg.model_dump(mode="json"), "issues": _check(bg, p)}
 
 
 @router.post("/jobs/{job_id}/background/scenes/{scene_id}/image")

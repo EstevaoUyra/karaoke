@@ -3,6 +3,8 @@ import type {
   RenderSettingsDoc, RunRequest, StageName,
 } from "./types";
 
+import type { Structure } from "./types/generated/structure";
+
 export class ApiError extends Error {
   status: number;
   issues: Issue[];
@@ -82,6 +84,13 @@ export const api = {
   background: (id: string) => req<BackgroundDoc>("GET", `${j(id)}/background`),
   saveBackground: (id: string, bg: BackgroundDoc) =>
     req<{ background: BackgroundDoc; issues: Issue[] }>("PUT", `${j(id)}/background`, bg),
+  structure: (id: string) => req<Structure>("GET", `${j(id)}/structure`),
+  backgroundPresets: (id: string) =>
+    req<{ presets: { name: string; label: string; available: boolean }[]; has_structure: boolean }>(
+      "GET", `${j(id)}/background/presets`),
+  applyBackgroundPreset: (id: string, name: string, replaceLocked = false) =>
+    req<{ background: BackgroundDoc; issues: Issue[] }>(
+      "POST", `${j(id)}/background/preset`, { name, replace_locked: replaceLocked }),
   uploadSceneImage: (id: string, sceneId: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
