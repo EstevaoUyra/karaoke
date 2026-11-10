@@ -117,14 +117,15 @@ STAGES: list[StageSpec] = [
         outputs=lambda p, j: [p.transcript],
         # "method" is bumped whenever the clip/retry logic changes, so old transcripts are redone.
         settings=lambda j, s: {"model": s.whisper_model, "language": j.settings.language,
-                               "prompt": os.environ.get("KARAOKE_WHISPER_PROMPT", "none"), "method": 2},
+                               "prompt": os.environ.get("KARAOKE_WHISPER_PROMPT", "none"), "method": 3},
         isolated=True,
     ),
     StageSpec(
         StageName.align,
         inputs=lambda p: [p.transcript, p.lyrics_choice, p.lyrics_chosen_text, p.lyrics_source("lrclib.lrc"),
-                          p.meta],
+                          p.meta, p.vocals],
         outputs=lambda p, j: [p.lyrics_final],
+        settings=lambda j, s: {"method": 3},  # bumped when the algorithm changes
     ),
     StageSpec(
         StageName.backgrounds,

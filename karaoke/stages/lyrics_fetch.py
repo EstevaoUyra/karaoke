@@ -25,6 +25,9 @@ Implementation notes:
   headers and, once expanded, the same line sequence, its sections and stanzas are used instead.
 - A network error keeps whatever LRCLIB/Genius files a previous run wrote (and uses them); a
   successful lookup that finds nothing deletes them.
+- letras.mus.br (the main PT-BR lyrics site) blocks automated clients, so it is only searched:
+  when no user text exists, the song page's URL goes to ``lyrics/sources/letras.json`` for the
+  user to open and paste from (``karaoke.lyrics.letras``).
 - ``youtube.vtt`` counts only if ``meta.has_manual_subs`` is non-empty (auto captions are just ASR).
   It is parsed by the small private parser below.
 """
@@ -291,6 +294,27 @@ def _choose(cands: list[_Candidate], forced: str | None, log) -> _Candidate | No
     return usable[0] if usable else None
 
 
+def _letras_pointer(ctx: StageContext, title: str, artist: str | None) -> None:
+    """Save the song's letras.mus.br URL (see ``karaoke.lyrics.letras``) for the user to paste from."""
+    import httpx
+
+    from karaoke.lyrics import letras
+    from karaoke.store import atomic_write_text
+
+    path = ctx.paths.lyrics_source("letras.json")
+    try:
+        hit = letras.find(title, artist)
+    except (httpx.HTTPError, ValueError) as exc:
+        ctx.log.warning("letras.mus.br search failed: %s", exc)
+        return
+    if hit is None:
+        path.unlink(missing_ok=True)
+        return
+    atomic_write_text(path, hit.to_json())
+    ctx.log.info("letras.mus.br has this song: %s (paste its lyrics into %s to use them)", hit.url,
+                 ctx.paths.rel(ctx.paths.lyrics_source("user.txt")))
+
+
 def run(ctx: StageContext) -> None:
     from karaoke.lyrics.normalize import parse_lyrics_text, to_chosen_text
     from karaoke.models import LyricsChoice, LyricsSourceName, Meta, SourceInfo
@@ -324,6 +348,10 @@ def run(ctx: StageContext) -> None:
     y = _youtube_candidate(ctx, meta)
     if y:
         cands.append(y)
+
+    if not any(c.name == "user" for c in cands):
+        ctx.progress(0.8, "letras.mus.br")
+        _letras_pointer(ctx, title, artist)
 
     chosen = _choose(cands, forced, ctx.log)
     text = to_chosen_text(chosen.stanzas) if chosen else ""

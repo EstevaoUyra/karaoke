@@ -33,3 +33,14 @@ def demo(jobs_dir: Path) -> JobPaths:
 @pytest.fixture
 def demo_no_audio(jobs_dir: Path) -> JobPaths:
     return make_demo.build(jobs_dir, audio=False)
+
+
+@pytest.fixture(autouse=True)
+def _offline_letras(monkeypatch):
+    """lyrics_fetch searches letras.mus.br; offline tests get an empty answer (no network)."""
+    import httpx
+
+    from karaoke.lyrics import letras
+
+    monkeypatch.setattr(letras, "TRANSPORT", httpx.MockTransport(
+        lambda req: httpx.Response(200, text='LetrasSug({"response":{"docs":[]}})')))

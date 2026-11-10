@@ -98,3 +98,61 @@ The reference is the 53 line starts of the cover's own synced LRC (hand-made, ab
 - The fill tracks mid-word, the next line waits dimmed in the alternate row, and instrumental gaps are empty until the countdown.
 - PT accents render correctly.
 - **Known issue:** in whisper-fallback songs (no lyrics source), lines follow whisper's phrasing. Sometimes a phrase is split across lines, and whisper adds a trailing "…". The AI review skill should repair the line breaks.
+
+## Rendering fixes (2026-11-09)
+
+- **Pauses.** Whisper's word timestamps are back to back, so a pause was folded into a word and the
+  fill crawled across it. `align` now reads the vocal stem's loudness (`karaoke/align/voicing.py`)
+  and cuts pauses out of words, judged against each word's own loud level. Absolute silence doesn't
+  work, because reverb and leakage keep the stem at -30 to -45 dB between phrases.
+  - A word's start only moves past a pause of 0.6 s or more. With 0.3 s, quiet sibilants ("s",
+    "sh") counted as silence, and line starts got later (cover median error 0.18 → 0.33 s).
+  - With the 0.6 s rule, cover line starts are unchanged: 31/53 within 0.3 s, 39/53 within 0.5 s,
+    median 0.18 s.
+  - Sacal is sung almost continuously, so it barely changes.
+- **Pauses that stay loud (Sacal).** Loudness alone missed Sacal's pauses. At 16–20 s the stem
+  stays at -25 dB (breath, noise, leakage) with no singing. At 22–27 s it is the echo of a held
+  "boy". In both places whisper stretched "Eles vão" across the gap, so the fill crawled over it.
+  `voicing.py` now uses two more signals:
+  - **pyin pitch.** A stretch of 1 s or more with no pitch counts as a pause if it's at least 12 dB
+    quieter than the singing around it, or if whisper stretched a word across it.
+  - **Syllable onsets.** These are sharp 10 dB rises. Words in a stretch of 1.5 s or more with no
+    onset are moved, but only if whisper made them at least 3× their natural length and the next
+    word starts at the next onset. The word before keeps its held note until the note fades.
+  - In Sacal, only those two places changed (5 words). In the cover, 7 line starts moved later.
+    At each one the stem is silent (−77 dB) at the LRC time and the new start matches the audio
+    onset, so the LRC is early there. Against the LRC the cover now scores 28/53 within 0.3 s,
+    37/53 within 0.5 s, median 0.28 s.
+  - Pitch tracking adds about 20–35 s to `align` per song.
+- **Dots.** Every pause of 2 s or more gets the three dots: the intro, between lines and inside a
+  line. They go out one per beat, on a beat from librosa's tempo of the instrumental, folded into
+  0.55–1.2 s. The cover's beat is 0.98 s, Sacal's 0.79 s.
+- **Line breaks.**
+  - The font size is now fixed. Widths are measured with the real font file, scaled the way libass
+    sizes fonts: predicted 1446 px, rendered 1443 px.
+  - Too-wide lines, and wide lines with a strong break (punctuation, parentheses), are split by
+    `karaoke/linebreak.py`.
+  - Whisper-only lyrics are grouped by sentence starts and punctuation instead of whisper segments.
+- **Rows.** There are 2 rows, or 3 wherever lines come less than 2 s apart (the median over 5
+  lines). Sacal switches to 3 rows when the rap starts, at 0:42; the cover only during its fast
+  "Sweet" run.
+
+## Missed phrase at a clip cut (2026-11-09)
+
+- **The miss.** Whisper skipped Sacal's "Ou vão querer me internar" (29.9–31.3 s).
+  - Whisper's 30 s window forced a cut in a long rap stretch. The quietest frame was a 0.1 s
+    breath at 29.85 s, right before the phrase, so the next clip started with no lead-in, and
+    whisper often drops words at a clip's very start.
+- **Overlapping clips didn't work.** Overlapping split clips by 1 s made whisper decode other clips
+  worse (340 → 295 words), so it was reverted.
+- **What changed:**
+  - Cuts now go in the quietest 0.3 s stretch, not the quietest frame. With it, whisper caught the
+    phrase in its main pass (344 words).
+  - **Gap fill:** gaps between words of 0.8 s or more, with loud voice and at least 2 syllable
+    onsets, are re-decoded with 1 s of context, and only new confident words inside the gap are
+    kept.
+  - Without the onset requirement, the gap fill invented a word in a loud noise pause, so the
+    requirement stays.
+- **letras.mus.br.** It is searched through its public suggestion endpoint, and the song URL is
+  saved to `lyrics/sources/letras.json`. Its pages refuse automated clients (403, even
+  `robots.txt`), so the text has to be pasted by the user into `lyrics/sources/user.txt`.

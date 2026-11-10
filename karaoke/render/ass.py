@@ -1,16 +1,22 @@
 """lyrics.final.json → ASS karaoke subtitles (rendered by libass inside ffmpeg).
 
-Layout (classic two-row karaoke):
+Layout (classic multi-row karaoke):
 
-- Lines alternate between a top and a bottom row, so a line never moves when it becomes current.
-  The row parity restarts on the top row after every instrumental gap.
-- A line first appears *dimmed* (unsung colour, semi-transparent) while the line before it is
-  sung, then becomes active ``lead_in_s`` before its first word. The active event starts with a
-  ``\\k`` spacer, so the ``\\kf`` fill starts exactly on the first word.
+- The font size never changes. A lyric line too wide for a row is split into display lines at its
+  best break (``render.layout``, ``karaoke.linebreak``).
+- Lines are grouped in *blocks* separated by gaps longer than ``countdown_gap_s``. Two rows are
+  used, or three where the lines come faster than ``FAST_LINE_S`` apart (so there is always time
+  to read ahead). Lines cycle through the rows top to bottom, so a line never moves when it
+  becomes current; a row is handed to the next line as soon as its line is sung, and at most
+  that many lines are on screen at once.
+- A line first appears *dimmed* (unsung colour, semi-transparent), then becomes active
+  ``lead_in_s`` before its first word. The active event starts with a ``\\k`` spacer, so the
+  ``\\kf`` fill starts exactly on the first word.
 - Each word gets a ``\\kf`` covering the word; gaps up to ``FOLD_GAP_S`` before the next word are
   folded into it (smooth fill), longer gaps get their own ``\\k`` spacer (the fill waits).
-- Before a line that follows a gap longer than ``countdown_gap_s``: three dots that disappear one
-  per beat (1 s) over the last 3 s.
+- Every pause of at least ``PAUSE_DOTS_MIN_S`` (the intro, between lines, or inside a line) gets
+  three dots above the rows that go out one per beat; the last one goes out as the singing resumes.
+  The beat comes from the song's tempo when the caller knows it.
 - A title card (title / artist) during the intro when the first line starts after ``TITLE_MIN_INTRO_S``.
 
 All times are rounded to centiseconds on an absolute grid, so the ``\\k`` sums are exact.
@@ -22,17 +28,26 @@ import re
 from dataclasses import dataclass
 
 from karaoke.models import Line, LyricsFinal, Meta, RenderSettings
+from karaoke.render.layout import display_lines, text_measurer
 
 BASE_HEIGHT = 1080
 FOLD_GAP_S = 0.35  # gaps up to this are folded into the previous word's fill
 POST_HOLD_S = 0.4  # keep a finished line on screen this long
 PREVIEW_AFTER_GAP_S = 3.5  # after a gap, the next line appears (dimmed) this long before it starts
 COUNTDOWN_BEATS = 3
-COUNTDOWN_BEAT_S = 1.0
+COUNTDOWN_BEAT_S = 1.0  # dot beat when the song's tempo is unknown
+PAUSE_DOTS_MIN_S = 2.0  # pauses at least this long get the three dots
+DOTS_AFTER_S = 0.3  # the dots never appear sooner than this after the voice stops
+MIN_DOT_BEAT_S = 0.35  # pauses too short for dots this far apart get none
+FAST_LINE_S = 2.0  # where the median line-to-line time is below this, three rows are used
+FAST_WINDOW = 5  # lines in that median
+MIN_RUN = 4  # fewest lines in a stretch of 2 or 3 rows
+OUTLINE = 3.5  # text outline at 1080p
 TITLE_MIN_INTRO_S = 3.0
 ROW_TOP_Y = 0.70  # centre of the top row, as a fraction of the height
 ROW_SPACING = 1.6  # distance between the rows, in font sizes
-MAX_TEXT_WIDTH = 0.92  # lines wider than this fraction of the width are shrunk
+MAX_TEXT_WIDTH = 0.90  # lines wider than this fraction of the width are split (titles shrink)
+SOFT_TEXT_WIDTH = 0.62  # ... and lines wider than this, if they have a strong break
 CHAR_WIDTH_EM = 0.58  # rough average glyph advance of a bold sans font, in font sizes
 
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")
@@ -160,84 +175,150 @@ class _Sched:
     s: float  # first word start
     e: float  # last word end
     end: float  # line end (>= e)
-    block_start: bool
-    row: int
-    act_start: float = 0.0
+    block: int  # index of the block (lines between gaps longer than countdown_gap_s)
+    k: int  # position in the block
+    rows: int = 2  # rows of the layout this line is shown in (2, or 3 in fast parts)
+    row: int = 0
+    pv_start: float = 0.0  # the line appears (dimmed)
+    act_start: float = 0.0  # the line becomes active (its \\k lead-in starts)
     act_end: float = 0.0
+
+
+def line_rows(starts: list[float]) -> list[int]:
+    """Rows per line of a block: 2, or 3 where the lines come faster than ``FAST_LINE_S`` apart
+    (the median over a window of ``FAST_WINDOW`` lines). Runs shorter than ``MIN_RUN`` lines take
+    the previous run's value, so the layout does not flicker."""
+    n = len(starts)
+    if n < MIN_RUN:
+        return [2] * n
+    pitch = [b - a for a, b in zip(starts, starts[1:], strict=False)]
+    pitch.append(pitch[-1])
+    half = FAST_WINDOW // 2
+    rows = []
+    for i in range(n):
+        win = sorted(pitch[max(0, i - half):i + half + 1])
+        rows.append(3 if win[len(win) // 2] < FAST_LINE_S else 2)
+    i = 0
+    while i < n:
+        j = i
+        while j < n and rows[j] == rows[i]:
+            j += 1
+        if j - i < MIN_RUN and (i > 0 or j < n):
+            fill = rows[i - 1] if i > 0 else rows[j]
+            rows[i:j] = [fill] * (j - i)
+        i = j
+    return rows
+
+
+def next_row(prev_row: int | None, prev_rows: int, rows: int) -> int:
+    """The row after ``prev_row`` (of a ``prev_rows`` layout) in a ``rows`` layout: the next one
+    down on screen, or the top one. Layouts share their bottom rows (see ``row_ys``)."""
+    if prev_row is None:
+        return 0
+    slot = prev_row + (3 - prev_rows)  # physical slot, 0 = highest of three
+    for r in range(rows):
+        if r + (3 - rows) > slot:
+            return r
+    return 0
 
 
 def _schedule(lines: list[Line], rs: RenderSettings, duration: float) -> list[_Sched]:
     out: list[_Sched] = []
-    for i, ln in enumerate(lines):
+    for ln in lines:
         s, e = ln.words[0].start, max(ln.words[-1].end, ln.words[0].start)
-        end = max(ln.end, e)
-        block = i == 0 or s - out[-1].end > rs.countdown_gap_s
-        row = 0 if block else 1 - out[-1].row
-        out.append(_Sched(ln, s, e, end, block, row))
+        new_block = not out or s - out[-1].end > rs.countdown_gap_s
+        block = out[-1].block + 1 if out and new_block else (out[-1].block if out else 0)
+        k = 0 if new_block else out[-1].k + 1
+        out.append(_Sched(ln, s, e, max(ln.end, e), block, k))
+    blocks: dict[int, list[_Sched]] = {}
     for sc in out:
-        sc.act_start = max(0.0, sc.s - rs.lead_in_s)
-        sc.act_end = min(duration, sc.end + POST_HOLD_S) if duration > sc.end else sc.end
-    row_free = [0.0, 0.0]
-    last_end = 0.0
-    for i, sc in enumerate(out):
-        # the next line in this row: hand the row over at its lead-in (but never before we finish)
-        j = i + 2
-        if j < len(out) and not out[i + 1].block_start and not out[j].block_start:
-            sc.act_end = min(sc.act_end, max(sc.end, out[j].act_start))
-        free = max(row_free[sc.row], last_end if sc.block_start else 0.0)
-        sc.act_start = min(max(sc.act_start, free), sc.s)
-        row_free[sc.row] = sc.act_end
-        last_end = max(last_end, sc.act_end)
+        blocks.setdefault(sc.block, []).append(sc)
+    prev_block_end = 0.0
+    for b in sorted(blocks):
+        bl = blocks[b]
+        prev: _Sched | None = None
+        for sc, n in zip(bl, line_rows([sc.s for sc in bl]), strict=True):
+            sc.rows = n
+            sc.row = next_row(prev.row if prev else None, prev.rows if prev else n, n)
+            prev = sc
+        slot = [sc.row + 3 - sc.rows for sc in bl]
+        for k, sc in enumerate(bl):
+            sc.act_end = min(duration, sc.end + POST_HOLD_S) if duration > sc.end else sc.end
+            nxt = next((bl[j] for j in range(k + 1, len(bl)) if slot[j] == slot[k]), None)
+            if nxt is not None:  # hand the row over in time for the line that reuses it
+                sc.act_end = min(sc.act_end, max(sc.end, nxt.s - rs.lead_in_s), nxt.s - 0.05)
+        appear = max(prev_block_end, bl[0].s - max(rs.lead_in_s, PREVIEW_AFTER_GAP_S), 0.0)
+        free = {sl: appear for sl in range(3)}
+        for k, sc in enumerate(bl):
+            # at most ``rows`` lines on screen: a line shows up when the one rows-1 before it is sung
+            ahead = k - (sc.rows - 1)
+            shown = bl[ahead].act_start if ahead > 0 else appear
+            start = max(free[slot[k]], shown)
+            sc.pv_start = min(start, sc.s)
+            sc.act_start = min(max(sc.s - rs.lead_in_s, start), sc.s)
+            free[slot[k]] = sc.act_end
+        prev_block_end = max(sc.act_end for sc in bl)
     return out
 
 
-def build_events(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: tuple[int, int]) -> list[Event]:
+def row_ys(n: int, H: int, fs: float) -> list[float]:
+    """Row centres for an n-row block; the bottom row stays put, extra rows stack upwards."""
+    bottom = ROW_TOP_Y * H + ROW_SPACING * fs
+    return [bottom - (n - 1 - r) * ROW_SPACING * fs for r in range(n)]
+
+
+def pauses(sched: list[_Sched], min_gap: float) -> list[tuple[float, float, _Sched]]:
+    """(silence start, next word start, line of that word) for every pause of at least
+    ``min_gap``: the intro, gaps between lines and gaps inside a line."""
+    out = []
+    prev_end = 0.0
+    for sc in sched:
+        for j, w in enumerate(sc.line.words):
+            if j == 0 or w.start - sc.line.words[j - 1].end >= min_gap:
+                last = prev_end if j == 0 else sc.line.words[j - 1].end
+                if w.start - last >= min_gap:
+                    out.append((last, w.start, sc))
+        prev_end = max(prev_end, sc.e)
+    return out
+
+
+def build_events(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: tuple[int, int],
+                 beat_s: float | None = None) -> list[Event]:
     W, H = resolution
     scale = H / BASE_HEIGHT
     fs = rs.font_size * scale
-    row_y = [ROW_TOP_Y * H, ROW_TOP_Y * H + ROW_SPACING * fs]
-    lines = sorted((ln for ln in lyrics.lines if ln.words), key=lambda ln: ln.words[0].start)
+    width = text_measurer(rs.font, fs, OUTLINE * scale)
+    raw = sorted((ln for ln in lyrics.lines if ln.words), key=lambda ln: ln.words[0].start)
+    lines = display_lines(raw, width, MAX_TEXT_WIDTH * W, SOFT_TEXT_WIDTH * W)
     duration = meta.duration
     sched = _schedule(lines, rs, duration)
     events: list[Event] = []
     dim = f"\\1c{ass_bgr(rs.color_unsung)}\\1a&H70&\\3a&HA0&\\4a&HD0&"
 
-    for i, sc in enumerate(sched):
+    for sc in sched:
         text_plain = plain_text(sc.line)
-        size_tag = ""
-        w = _est_width(text_plain, fs)
-        if w > MAX_TEXT_WIDTH * W:
-            size_tag = f"\\fs{fs * MAX_TEXT_WIDTH * W / w:.1f}"
-        pos = f"\\an5\\pos({W / 2:.0f},{row_y[sc.row]:.0f})"
+        y = row_ys(sc.rows, H, fs)[sc.row]
+        pos = f"\\an5\\pos({W / 2:.0f},{y:.0f})"
 
         # dimmed "next line" phase
-        if sc.block_start:
-            prev_end = sched[i - 1].act_end if i else 0.0
-            pv_start = max(prev_end, sc.s - max(rs.lead_in_s, PREVIEW_AFTER_GAP_S))
-            fade_in = 300
-        else:
-            pv_start = sched[i - 1].act_start
-            if i >= 2 and not sc.block_start and not sched[i - 1].block_start:
-                pv_start = max(pv_start, sched[i - 2].act_end)
-            fade_in = 150
-        a0, a1 = cs(pv_start), cs(sc.act_start)
+        a0, a1 = cs(sc.pv_start), cs(sc.act_start)
+        fade_in = 300 if sc.k == 0 else 150
         if a1 - a0 >= 5:
-            events.append(Event(a0, a1, "Karaoke", f"{{{pos}{size_tag}{dim}\\fad({min(fade_in, (a1 - a0) * 5)},0)}}"
+            events.append(Event(a0, a1, "Karaoke", f"{{{pos}{dim}\\fad({min(fade_in, (a1 - a0) * 5)},0)}}"
                                 f"{text_plain}", name="next"))
         else:
-            a1 = a0 = cs(sc.act_start)
+            a0 = a1
 
         # active phase
         start_cs, end_cs = a1, cs(sc.act_end)
         ktext, _ = karaoke_text(sc.line, start_cs)
         fade = "\\fad(0,150)" if a1 > a0 else "\\fad(150,150)"
         events.append(Event(start_cs, max(end_cs, start_cs + 1), "Karaoke",
-                            f"{{{pos}{size_tag}{fade}}}{ktext}", layer=1, name="line"))
+                            f"{{{pos}{fade}}}{ktext}", layer=1, name="line"))
 
-        # countdown before lines after a long gap (and before the first line after a long intro)
-        gap = sc.s - (sched[i - 1].end if i else 0.0)
-        if sc.block_start and gap > rs.countdown_gap_s:
-            events += _countdown(sc, sched[i - 1].act_end if i else 0.0, W, row_y[0], fs, rs)
+    for silence, nxt, sc in pauses(sched, PAUSE_DOTS_MIN_S):
+        top = row_ys(sc.rows, H, fs)[0]
+        events += _countdown(silence, nxt, W, top, fs, beat_s or COUNTDOWN_BEAT_S)
 
     if rs.show_title_card:
         events += _title_card(meta, sched, W, H, fs, rs)
@@ -245,20 +326,26 @@ def build_events(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution
     return events
 
 
-def _countdown(sc: _Sched, free_from: float, W: int, top_y: float, fs: float, rs: RenderSettings) -> list[Event]:
+def _countdown(silence: float, start: float, W: int, top_y: float, fs: float, beat: float) -> list[Event]:
+    """Three dots over the row block: they appear ``COUNTDOWN_BEATS`` beats before ``start`` and
+    go out one per beat, the last one exactly when the singing comes back."""
+    room = start - silence - DOTS_AFTER_S
+    beat = min(beat, room / COUNTDOWN_BEATS)
+    if beat < MIN_DOT_BEAT_S:
+        return []
     r = max(2, round(fs * 0.22))
     spacing = r * 3.2
     y = top_y - 1.15 * fs
-    appear = max(free_from, sc.s - COUNTDOWN_BEATS * COUNTDOWN_BEAT_S - 0.5)
+    appear = start - COUNTDOWN_BEATS * beat
+    fade_in = int(min(250, (appear - silence) * 1000))
+    appear -= fade_in / 1000
     out = []
     for k in range(COUNTDOWN_BEATS):
-        gone = sc.s - (COUNTDOWN_BEATS - 1 - k) * COUNTDOWN_BEAT_S
+        gone = start - (COUNTDOWN_BEATS - 1 - k) * beat
         a, b = cs(appear), cs(gone)
-        if b - a < 10:
-            continue
         x = W / 2 + (k - (COUNTDOWN_BEATS - 1) / 2) * spacing
         out.append(Event(a, b, "Countdown",
-                         f"{{\\an5\\pos({x:.0f},{y:.0f})\\fad(250,120)\\p1}}{_circle(r)}{{\\p0}}",
+                         f"{{\\an5\\pos({x:.0f},{y:.0f})\\fad({fade_in},120)\\p1}}{_circle(r)}{{\\p0}}",
                          layer=2, name="countdown"))
     return out
 
@@ -296,8 +383,11 @@ def _style(name: str, font: str, size: float, primary: str, secondary: str, outl
             f"{-1 if bold else 0},0,0,0,100,100,0,0,1,{outline_w:.1f},{shadow_w:.1f},5,10,10,10,1")
 
 
-def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: tuple[int, int]) -> str:
-    """The complete .ass document for this song at ``resolution`` (PlayRes = video size)."""
+def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: tuple[int, int],
+              beat_s: float | None = None) -> str:
+    """The complete .ass document for this song at ``resolution`` (PlayRes = video size).
+
+    ``beat_s`` (seconds per beat, see ``render.tempo``) paces the countdown dots."""
     W, H = resolution
     scale = H / BASE_HEIGHT
     fs = rs.font_size * scale
@@ -307,7 +397,7 @@ def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: t
     shadow = hex_to_ass(rs.color_outline, alpha=0x80)
     styles = [
         # karaoke: Primary = after the fill (sung), Secondary = before the fill (unsung)
-        _style("Karaoke", rs.font, fs, sung, unsung, outline, shadow, bold, 3.5 * scale, 1.5 * scale),
+        _style("Karaoke", rs.font, fs, sung, unsung, outline, shadow, bold, OUTLINE * scale, 1.5 * scale),
         _style("Countdown", rs.font, fs, sung, sung, outline, shadow, bold, 2.5 * scale, 1.0 * scale),
         _style("Title", rs.font, fs * 1.5, hex_to_ass(rs.color_unsung), unsung, outline, shadow, bold,
                4.0 * scale, 2.0 * scale),
@@ -332,5 +422,5 @@ def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: t
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
-    events = build_events(lyrics, meta, rs, resolution)
+    events = build_events(lyrics, meta, rs, resolution, beat_s)
     return "\n".join(header + [str(e) for e in events]) + "\n"
