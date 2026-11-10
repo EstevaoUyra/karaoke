@@ -51,7 +51,10 @@ def downsample_contour(f0, prob, hop_s: float, max_points: int) -> dict:
 
 @router.get("/jobs/{job_id}/melody/contour")
 def melody_contour(request: Request, job_id: str, max_points: int = 6000) -> dict:
-    """The raw pyin contour (cache/melody.f0.npz), downsampled, for a diagnostic view."""
+    """The raw pitch contour (cache/melody.f0.npz), downsampled, for a diagnostic view.
+
+    The confidence is ``conf`` (CREPE periodicity or pyin voicing, melody stage v2+) or ``prob``
+    (pyin voicing, v1 caches)."""
     import numpy as np
 
     from karaoke.store import file_hash
@@ -61,7 +64,8 @@ def melody_contour(request: Request, job_id: str, max_points: int = 6000) -> dic
         raise HTTPException(404, "no pitch contour yet: run the melody step")
     try:
         with np.load(p.melody_f0) as z:
-            f0, prob, hop_s = z["f0"], z["prob"], float(z["hop_s"])
+            conf_key = "conf" if "conf" in z.files else "prob"
+            f0, prob, hop_s = z["f0"], z[conf_key], float(z["hop_s"])
             vhash = str(z["vocals_hash"]) if "vocals_hash" in z else None
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(422, f"unreadable pitch contour: {exc}") from exc
