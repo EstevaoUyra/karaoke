@@ -1,5 +1,5 @@
 import type {
-  BackgroundDoc, Issue, JobDetail, JobSettingsDoc, JobSummary, LyricsDoc, LyricsSources, QueueSnapshot,
+  BackgroundDoc, ContourDoc, Issue, MelodyDoc, JobDetail, JobSettingsDoc, JobSummary, LyricsDoc, LyricsSources, QueueSnapshot,
   RenderSettingsDoc, RunRequest, StageName,
 } from "./types";
 
@@ -71,6 +71,10 @@ export const api = {
   lyricsSources: (id: string) => req<LyricsSources>("GET", `${j(id)}/lyrics/sources`),
   saveUserLyrics: (id: string, text: string, run: boolean) =>
     req<{ saved: boolean; run: RunRequest | null }>("PUT", `${j(id)}/lyrics/user`, { text, run }),
+
+  melody: (id: string) => req<MelodyDoc>("GET", `${j(id)}/melody`),
+  melodyContour: (id: string) => req<ContourDoc>("GET", `${j(id)}/melody/contour`),
+  midiUrl: (id: string) => `${j(id)}/melody.mid`,
 
   settings: (id: string) => req<JobSettingsDoc>("GET", `${j(id)}/settings`),
   render: (id: string, render: RenderSettingsDoc) => req<RunRequest>("POST", `${j(id)}/render`, { render }),

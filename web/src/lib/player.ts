@@ -1,34 +1,65 @@
-// Sample-accurate playback of the stems with the Web Audio API: the instrumental, plus the vocal
-// stem as an optional guide track, both started on the same clock so they never drift apart.
+// Sample-accurate playback with the Web Audio API, as a three-channel mixer: the instrumental, the
+// vocal stem (guide vocals) and a synth playing the detected melody. All three run on the
+// AudioContext clock, so seeking, pausing and changing speed keep them together.
 // `time` is what you hear right now (output latency subtracted), which is what tap-to-sync needs.
+import { ATTACK, RELEASE, noteGain, planNotes, type Clock, type SynthNote } from "./synth";
 
 type Listener = () => void;
+export type Channel = "inst" | "voc" | "synth";
+export const CHANNELS: Channel[] = ["inst", "voc", "synth"];
+
+export interface ChannelState {
+  volume: number; // 0..1
+  muted: boolean;
+}
+export type Mix = Record<Channel, ChannelState>;
+
+export const DEFAULT_MIX: Mix = {
+  inst: { volume: 1, muted: false },
+  voc: { volume: 0.5, muted: true },
+  synth: { volume: 0.6, muted: true },
+};
+
+const LOOKAHEAD_S = 1.2; // context seconds of synth notes scheduled ahead
+const TICK_MS = 120;
 
 export class StemPlayer {
   private ctx: AudioContext | null = null;
   private inst: AudioBuffer | null = null;
   private voc: AudioBuffer | null = null;
   private sources: AudioBufferSourceNode[] = [];
-  private instGain: GainNode | null = null;
-  private vocGain: GainNode | null = null;
+  private gains: Partial<Record<Channel, GainNode>> = {};
   private startedAt = 0; // ctx time when playback (re)started
   private offset = 0; // song time at startedAt
   private _rate = 1;
-  private _vocals = 0; // guide vocal gain 0..1
+  private _mix: Mix = structuredClone(DEFAULT_MIX);
   private listeners = new Set<Listener>();
+  // synth
+  private notes: SynthNote[] = [];
+  private tuning = 0;
+  private scheduled = new Set<number>();
+  private horizon = 0; // song time scheduled up to
+  private voices = new Set<OscillatorNode>();
+  private timer: number | null = null;
   playing = false;
   duration = 0;
 
   private audio(): AudioContext {
     if (!this.ctx) {
       this.ctx = new AudioContext({ latencyHint: "interactive" });
-      this.instGain = this.ctx.createGain();
-      this.vocGain = this.ctx.createGain();
-      this.vocGain.gain.value = this._vocals;
-      this.instGain.connect(this.ctx.destination);
-      this.vocGain.connect(this.ctx.destination);
+      for (const ch of CHANNELS) {
+        const g = this.ctx.createGain();
+        g.gain.value = this.level(ch);
+        g.connect(this.ctx.destination);
+        this.gains[ch] = g;
+      }
     }
     return this.ctx;
+  }
+
+  private level(ch: Channel): number {
+    const c = this._mix[ch];
+    return c.muted ? 0 : c.volume;
   }
 
   private async decode(url: string): Promise<AudioBuffer> {
@@ -45,12 +76,19 @@ export class StemPlayer {
 
   async loadVocals(url: string): Promise<void> {
     this.voc = await this.decode(url);
-    if (this.playing) this.restart();
+    if (this.playing) this.play(this.time);
     this.emit();
   }
 
   get hasVocals(): boolean {
     return this.voc !== null;
+  }
+
+  /** The melody to synthesise. `tuning` (semitones off A440) is added to every note. */
+  setNotes(notes: SynthNote[], tuning = 0): void {
+    this.notes = notes.slice().sort((a, b) => a.start - b.start);
+    this.tuning = tuning;
+    if (this.playing) this.play(this.time);
   }
 
   get time(): number {
@@ -67,18 +105,23 @@ export class StemPlayer {
   set rate(r: number) {
     const t = this.time;
     this._rate = r;
-    if (this.playing) this.play(t);
+    if (this.playing) this.play(t); // re-schedules the synth at the new rate (and pitch)
     this.emit();
   }
 
-  get vocals(): number {
-    return this._vocals;
+  get mix(): Mix {
+    return this._mix;
   }
 
-  set vocals(g: number) {
-    this._vocals = g;
-    if (this.vocGain) this.vocGain.gain.value = g;
+  setChannel(ch: Channel, patch: Partial<ChannelState>): void {
+    this._mix = { ...this._mix, [ch]: { ...this._mix[ch], ...patch } };
+    const g = this.gains[ch];
+    if (g && this.ctx) g.gain.setTargetAtTime(this.level(ch), this.ctx.currentTime, 0.015);
     this.emit();
+  }
+
+  setMix(mix: Mix): void {
+    for (const ch of CHANNELS) this.setChannel(ch, mix[ch]);
   }
 
   play(from?: number): void {
@@ -96,20 +139,77 @@ export class StemPlayer {
       s.start(when, start);
       return s;
     };
-    this.sources = [make(this.inst, this.instGain!)];
-    if (this.voc) this.sources.push(make(this.voc, this.vocGain!));
+    this.sources = [make(this.inst, this.gains.inst!)];
+    if (this.voc) this.sources.push(make(this.voc, this.gains.voc!));
     const main = this.sources[0];
     main.onended = () => {
       if (this.sources[0] === main) {
         this.playing = false;
         this.offset = this.duration;
+        this.stopSynth();
         this.emit();
       }
     };
     this.startedAt = when;
     this.offset = start;
     this.playing = true;
+    this.horizon = start;
+    this.scheduled.clear();
+    this.scheduleSynth();
+    this.timer = window.setInterval(() => this.scheduleSynth(), TICK_MS);
     this.emit();
+  }
+
+  private clock(): Clock {
+    return { startedAt: this.startedAt, offset: this.offset, rate: this._rate };
+  }
+
+  private scheduleSynth(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.playing || !this.notes.length) return;
+    const clock = this.clock();
+    const to = clock.offset + (ctx.currentTime + LOOKAHEAD_S - clock.startedAt) * clock.rate;
+    const plan = planNotes(this.notes, this.horizon, to, clock, this.tuning, this.scheduled);
+    this.horizon = Math.max(this.horizon, to);
+    for (const p of plan) {
+      this.scheduled.add(p.index);
+      const when = Math.max(p.when, ctx.currentTime);
+      if (p.stop <= when) continue;
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = p.freq;
+      const env = ctx.createGain();
+      const peak = noteGain(this.notes[p.index].conf);
+      env.gain.setValueAtTime(0, when);
+      env.gain.linearRampToValueAtTime(peak, when + ATTACK);
+      env.gain.setValueAtTime(peak, Math.max(when + ATTACK, p.stop));
+      env.gain.linearRampToValueAtTime(0, Math.max(when + ATTACK, p.stop) + RELEASE);
+      osc.connect(env);
+      env.connect(this.gains.synth!);
+      osc.start(when);
+      osc.stop(Math.max(when + ATTACK, p.stop) + RELEASE + 0.02);
+      this.voices.add(osc);
+      osc.onended = () => {
+        this.voices.delete(osc);
+        env.disconnect();
+      };
+    }
+  }
+
+  private stopSynth(): void {
+    if (this.timer !== null) window.clearInterval(this.timer);
+    this.timer = null;
+    for (const o of this.voices) {
+      o.onended = null;
+      try {
+        o.stop();
+      } catch {
+        /* not started */
+      }
+      o.disconnect();
+    }
+    this.voices.clear();
+    this.scheduled.clear();
   }
 
   pause(): void {
@@ -134,10 +234,6 @@ export class StemPlayer {
     }
   }
 
-  private restart(): void {
-    this.play(this.time);
-  }
-
   private stopSources(): void {
     for (const s of this.sources) {
       s.onended = null;
@@ -149,6 +245,7 @@ export class StemPlayer {
       s.disconnect();
     }
     this.sources = [];
+    this.stopSynth();
   }
 
   subscribe(l: Listener): () => void {
@@ -167,7 +264,6 @@ export class StemPlayer {
     this.stopSources();
     void this.ctx?.close();
     this.ctx = null;
-    this.instGain = null;
-    this.vocGain = null;
+    this.gains = {};
   }
 }
