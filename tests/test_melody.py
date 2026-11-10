@@ -211,3 +211,40 @@ def test_display_shift():
     assert display_shift(68.0) == 0
     assert display_shift(84.0) == -1
     assert display_shift(65.0) == 0  # a tie keeps the written octave
+
+
+# --------------------------------------------------------------------------- words as a prior
+
+
+def test_words_let_unsure_singing_through():
+    # a sung word where the tracker is unsure (conf 0.2) and the pitch wobbles (not "steady")
+    midi, prob = contour([(0.3, None), (0.8, 64), (0.3, None)], jitter=0.45, seed=5)
+    prob[np.isfinite(midi)] = 0.2
+    assert N.segment(midi, prob, HOP, prof=N.PROFILES["pyin-v1"]) == []
+    notes = N.segment(midi, prob, HOP, words=[(0.3, 1.1)], prof=N.profile("crepe-tiny"))
+    assert [n.midi for n in notes] == [64] and notes[0].dur > 0.6
+    # the same frames with no word there stay out
+    assert N.segment(midi, prob, HOP, words=[(5.0, 6.0)], prof=N.profile("crepe-tiny")) == []
+
+
+def test_dropouts_inside_a_word_are_bridged():
+    midi, prob = contour([(0.5, 62), (0.16, None), (0.5, 62.3)], jitter=0.02, glide=0)
+    words = [(0.0, 1.16)]
+    bridged = N.segment(midi, prob, HOP, words=words)
+    assert [(n.midi, round(n.start, 1), round(n.end, 1)) for n in bridged] == [(62, 0.0, 1.1)]
+    # a dropout between words, or a long one, is a rest
+    assert len(N.segment(midi, prob, HOP, words=[(0.0, 0.5), (0.66, 1.16)])) == 2
+    long_gap, p2 = contour([(0.5, 62), (0.5, None), (0.5, 62)], jitter=0.02, glide=0)
+    assert len(N.segment(long_gap, p2, HOP, words=[(0.0, 1.5)])) == 2
+
+
+def test_gaps_between_notes_of_a_word_are_closed():
+    a = [N.RawNote(0.0, 0.4, 60, 60.0, 0.9), N.RawNote(0.55, 0.9, 62, 62.0, 0.9), N.RawNote(1.5, 2.0, 64, 64.0, 0.9)]
+    assert N.close_gaps(a, [(0.0, 0.9), (1.4, 2.0)], 0.2) == 1
+    assert a[0].end == 0.55 and a[1].end == 0.9  # 0.9-1.5 is between words: a rest
+
+
+def test_profiles_by_tracker():
+    assert N.profile("crepe-full") is N.profile("crepe-tiny") is N.PROFILES["crepe"]
+    assert N.profile("pyin") is N.PROFILES["pyin"]
+    assert N.profile("something-else") is N.PROFILES["pyin"]

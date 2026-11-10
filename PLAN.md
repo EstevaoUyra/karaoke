@@ -53,8 +53,8 @@ YouTube URL
      (optional) AI skill: karaoke-lyrics-review  ── edits lyrics.final.json
                 │
                 ▼
-[5b melody] pyin f0 on vocals.wav → notes (+ word starts split held notes), key
-            (Krumhansl–Schmuckler on notes + instrumental chroma) → melody.json
+[5b melody] torchcrepe-tiny f0 on vocals.wav (pyin fallback) → notes, with the sung words as a
+            voicing prior; key (Krumhansl–Schmuckler: notes + instrumental + mix chroma) → melody.json
                 │
                 ▼
 [6 backgrounds] default: background.json with 1 scene (solid colour / gradient / single image)

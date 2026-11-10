@@ -194,34 +194,71 @@ def test_accidental_shapes_are_closed_polygons():
 # --------------------------------------------------------------------------- the stage
 
 
-def test_melody_stage_with_a_fake_pitch_track(demo, monkeypatch):
-    import karaoke.stages.melody as stage
-
-    calls = []
-
-    def fake_track(signal, sr, progress=None):
-        calls.append(1)
+def _fake_track(calls: list, fail: set[str] = frozenset()):
+    def fake_track(signal, sr, tracker, progress=None):
+        calls.append(tracker)
+        if tracker in fail:
+            raise RuntimeError(f"{tracker} is broken")
         hop = 0.04
         n = int(len(signal) / sr / hop) + 1
         f0 = np.full(n, np.nan, dtype=np.float32)
         lf = make_demo.truth_lyrics()
-        scale = [67, 71, 74, 66, 67, 69, 71, 67]  # G major (G B D, F# leading tone), mid-staff
+        scale = [67, 71, 74, 72, 67, 69, 66, 67]  # G major (G B D, C, F# leading tone), mid-staff
         for i, w in enumerate(x for ln in lf.lines for x in ln.words):
             f0[int(w.start / hop) + 1:int(w.end / hop)] = 440 * 2 ** ((scale[i % len(scale)] - 69) / 12)
         prob = np.where(np.isfinite(f0), 0.9, 0.0).astype(np.float32)
         return f0, prob, hop
 
-    monkeypatch.setattr(stage, "pitch_track", fake_track)
+    return fake_track
+
+
+@pytest.fixture
+def in_process(monkeypatch):
+    """Run the (isolated) melody stage in this process, so the fake tracker is used."""
+    from dataclasses import replace
+
+    from karaoke import pipeline
+
+    spec = pipeline.STAGE_BY_NAME[StageName.melody]
+    assert spec.isolated  # CREPE imports torch: never in the same process as ctranslate2
+    monkeypatch.setitem(pipeline.STAGE_BY_NAME, StageName.melody, replace(spec, isolated=False))
+
+
+def test_melody_stage_with_a_fake_pitch_track(demo, monkeypatch, in_process):
+    import karaoke.stages.melody as stage
+    from karaoke.config import get_settings
+
+    calls: list[str] = []
+    monkeypatch.setattr(stage, "pitch_track", _fake_track(calls))
     monkeypatch.setattr(stage, "instrumental_chroma", lambda path: None)
     store = JobStore(demo.root.parent)
+    settings = get_settings().model_copy(update={"melody_tracker": "crepe-tiny"})
     assert ORDER.index(StageName.melody) == ORDER.index(StageName.align) + 1
-    run_job("demo", only=[StageName.melody], store=store)
+    run_job("demo", only=[StageName.melody], store=store, settings=settings)
     assert store.load("demo").stages[StageName.melody].status == StageStatus.done
     m = read_model(demo.melody, Melody)
-    assert len(m.notes) >= 10 and {n.midi for n in m.notes} <= {66, 67, 69, 71, 74}
+    assert len(m.notes) >= 10 and {n.midi for n in m.notes} <= {66, 67, 69, 71, 72, 74}
     assert m.key is not None and (m.key.tonic, m.key.mode, m.key.accidentals) == ("G", "major", ["F#"])
-    assert m.display_octave_shift == 0 and abs(m.tuning) < 0.05
-    assert demo.melody_f0.exists() and calls == [1]
-    # a lyrics edit re-segments from the cached contour (no second pitch track)
-    run_job("demo", only=[StageName.melody], store=store)
-    assert calls == [1]
+    assert m.display_octave_shift == 0 and abs(m.tuning) < 0.05 and m.params["tracker"] == "crepe-tiny"
+    assert demo.melody_f0.exists() and calls == ["crepe-tiny"]
+    # a lyrics edit re-segments from the cached contour (no second pitch track) ...
+    run_job("demo", only=[StageName.melody], store=store, settings=settings)
+    assert calls == ["crepe-tiny"]
+    # ... but another tracker does not reuse it
+    run_job("demo", only=[StageName.melody], store=store,
+            settings=settings.model_copy(update={"melody_tracker": "pyin"}))
+    assert calls == ["crepe-tiny", "pyin"]
+
+
+def test_melody_stage_falls_back_to_pyin(demo, monkeypatch, in_process):
+    import karaoke.stages.melody as stage
+    from karaoke.config import get_settings
+
+    calls: list[str] = []
+    monkeypatch.setattr(stage, "pitch_track", _fake_track(calls, fail={"crepe-full"}))
+    monkeypatch.setattr(stage, "instrumental_chroma", lambda path: None)
+    store = JobStore(demo.root.parent)
+    settings = get_settings().model_copy(update={"melody_tracker": "crepe-full"})
+    run_job("demo", only=[StageName.melody], store=store, settings=settings)
+    assert calls == ["crepe-full", "pyin"]
+    assert read_model(demo.melody, Melody).params["tracker"] == "pyin"

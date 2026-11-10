@@ -129,12 +129,13 @@ STAGES: list[StageSpec] = [
     ),
     StageSpec(
         StageName.melody,
-        # After align (not straight after transcribe): word starts in lyrics.final.json split held
-        # notes at syllables. The pyin contour is cached by vocals.wav hash (``melody_f0``), so a
-        # lyrics edit only re-segments. The instrumental's chroma helps the key estimate.
-        inputs=lambda p: [p.vocals, p.instrumental, p.lyrics_final],
+        # After align (not straight after transcribe): the sung words are a prior for voicing and
+        # split held notes at syllables. The F0 contour is cached by vocals.wav hash and tracker
+        # (``melody_f0``), so a lyrics edit only re-segments. Instrumental and mix chroma help the key.
+        inputs=lambda p: [p.vocals, p.instrumental, p.audio, p.lyrics_final],
         outputs=lambda p, j: [p.melody],
-        settings=lambda j, s: {"method": 1},  # bumped when the algorithm changes
+        settings=lambda j, s: {"method": 2, "tracker": s.melody_tracker},  # bumped when the algorithm changes
+        isolated=True,  # torchcrepe imports torch: never in a process with ctranslate2
     ),
     StageSpec(
         StageName.backgrounds,
