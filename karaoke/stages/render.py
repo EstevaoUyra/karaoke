@@ -78,7 +78,7 @@ def build_command(
 
 
 def run(ctx: StageContext) -> None:
-    from karaoke.models import Background, LyricsFinal, Meta
+    from karaoke.models import Background, LyricsFinal, Melody, Meta
     from karaoke.render.ass import build_ass
     from karaoke.render.compositor import build_graph
     from karaoke.render.ffmpeg import has_libass, run_ffmpeg
@@ -125,7 +125,16 @@ def run(ctx: StageContext) -> None:
         beat_s = None
     ctx.log.info("countdown beat: %s s", beat_s)
     ctx.progress(0.02, f"building subtitles ({size[0]}x{size[1]})")
-    ass_text = build_ass(lyrics, meta, rs, size, beat_s)
+    melody = None
+    if rs.show_pitch:
+        melody = read_model_opt(p.melody, Melody)
+        if melody is None:
+            ctx.log.warning("show_pitch is on but %s is missing (run the melody stage); no pitch guide",
+                            p.rel(p.melody))
+        elif melody.key is not None:
+            ctx.log.info("pitch guide: %d notes, key %s %s, octave shift %+d", len(melody.notes),
+                         melody.key.tonic, melody.key.mode, melody.display_octave_shift)
+    ass_text = build_ass(lyrics, meta, rs, size, beat_s, melody)
     atomic_write_text(p.ass, ass_text)
 
     p.output_dir.mkdir(parents=True, exist_ok=True)

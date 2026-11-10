@@ -20,6 +20,7 @@ from karaoke.models import (
     Job,
     LyricsChoice,
     LyricsFinal,
+    Melody,
     Meta,
     Transcript,
     now,
@@ -102,6 +103,15 @@ class JobPaths:
     @property
     def review_notes(self) -> Path:
         return self.root / "review.md"  # written by the lyrics-review skill
+
+    # melody (pitch guide)
+    @property
+    def melody(self) -> Path:
+        return self.root / "melody.json"
+
+    @property
+    def melody_f0(self) -> Path:
+        return self.root / "cache" / "melody.f0.npz"  # raw pyin contour, reused while vocals.wav is unchanged
 
     # backgrounds
     @property
@@ -273,3 +283,6 @@ class JobStore:
 
     def background(self, job_id: str) -> Background | None:
         return read_model_opt(self.paths(job_id).background, Background)
+
+    def melody(self, job_id: str) -> Melody | None:
+        return read_model_opt(self.paths(job_id).melody, Melody)

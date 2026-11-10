@@ -128,6 +128,15 @@ STAGES: list[StageSpec] = [
         settings=lambda j, s: {"method": 3},  # bumped when the algorithm changes
     ),
     StageSpec(
+        StageName.melody,
+        # After align (not straight after transcribe): word starts in lyrics.final.json split held
+        # notes at syllables. The pyin contour is cached by vocals.wav hash (``melody_f0``), so a
+        # lyrics edit only re-segments. The instrumental's chroma helps the key estimate.
+        inputs=lambda p: [p.vocals, p.instrumental, p.lyrics_final],
+        outputs=lambda p, j: [p.melody],
+        settings=lambda j, s: {"method": 1},  # bumped when the algorithm changes
+    ),
+    StageSpec(
         StageName.backgrounds,
         # Only creates the default background.json if none exists (never overwrites user/AI work).
         inputs=lambda p: [p.meta],
@@ -135,7 +144,8 @@ STAGES: list[StageSpec] = [
     ),
     StageSpec(
         StageName.render,
-        inputs=lambda p: [p.instrumental, p.vocals, p.lyrics_final, p.background, p.bg_assets_dir, p.meta],
+        inputs=lambda p: [p.instrumental, p.vocals, p.lyrics_final, p.background, p.bg_assets_dir, p.meta,
+                          p.melody],
         outputs=_render_output,
         settings=lambda j, s: j.settings.render.model_dump(),
     ),
