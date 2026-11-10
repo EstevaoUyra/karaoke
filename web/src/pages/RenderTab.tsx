@@ -104,8 +104,17 @@ export function RenderTab({ detail }: { detail: JobDetail }) {
         <label className="row" title={detail.files.melody ? "" : "Run the Melody step first"}>
           <input type="checkbox" checked={rs.show_pitch} disabled={!detail.files.melody && !rs.show_pitch}
             onChange={(e) => set("show_pitch", e.target.checked)} />
-          Pitch guide: the melody as bars on a staff at the top
+          Pitch guide: the melody as bars at the top
         </label>
+        {rs.show_pitch && (
+          <div className="field">
+            <label htmlFor="pstyle">Pitch guide style</label>
+            <select id="pstyle" value={rs.pitch_style} onChange={(e) => set("pitch_style", e.target.value as typeof rs.pitch_style)}>
+              <option value="roll">Piano roll: one row per semitone, the voice's pitch line, words under the notes</option>
+              <option value="staff">Treble staff: key signature and accidentals</option>
+            </select>
+          </div>
+        )}
         <button className="primary" disabled={busy || rendering || queue !== null || missing}>
           {rendering ? `Rendering ${Math.round(st.progress * 100)}%` : queue === "queued" ? "Waiting in the queue" :
             `Render ${rs.preset === "preview" ? "preview" : "final video"}`}

@@ -125,7 +125,7 @@ def run(ctx: StageContext) -> None:
         beat_s = None
     ctx.log.info("countdown beat: %s s", beat_s)
     ctx.progress(0.02, f"building subtitles ({size[0]}x{size[1]})")
-    melody = None
+    melody = contour = None
     if rs.show_pitch:
         melody = read_model_opt(p.melody, Melody)
         if melody is None:
@@ -134,7 +134,13 @@ def run(ctx: StageContext) -> None:
         elif melody.key is not None:
             ctx.log.info("pitch guide: %d notes, key %s %s, octave shift %+d", len(melody.notes),
                          melody.key.tonic, melody.key.mode, melody.display_octave_shift)
-    ass_text = build_ass(lyrics, meta, rs, size, beat_s, melody)
+        if melody is not None and rs.pitch_style == "roll":
+            from karaoke.melody.pipeline import load_contour_midi
+
+            contour = load_contour_midi(p)
+            if contour is None:
+                ctx.log.info("no pitch contour (%s): the guide has bars only", p.rel(p.melody_f0))
+    ass_text = build_ass(lyrics, meta, rs, size, beat_s, melody, contour)
     atomic_write_text(p.ass, ass_text)
 
     p.output_dir.mkdir(parents=True, exist_ok=True)

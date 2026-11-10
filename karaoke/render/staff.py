@@ -34,7 +34,7 @@ import math
 import shutil
 import struct
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from karaoke.melody.theory import FLAT_POSITIONS, SHARP_POSITIONS, Key, ledger_positions, spell
@@ -306,6 +306,7 @@ class GuideNote:
     accidental: str | None
     ledgers: list[int]
     written: int  # written MIDI (after the octave shift)
+    end_trim: float = 0.0  # seconds from this note's start to the next note's, when that one has an accidental
 
 
 def guide_notes(melody: Melody, min_conf: float = 0.0) -> tuple[Key, list[GuideNote]]:
@@ -321,6 +322,9 @@ def guide_notes(melody: Melody, min_conf: float = 0.0) -> tuple[Key, list[GuideN
         if not POS_MIN <= pos <= POS_MAX:
             continue  # off the panel even after the octave shift: likely a tracking error, not drawn
         out.append(GuideNote(n.start, n.end, pos, sp.accidental, ledger_positions(pos), written))
+    for i, (a, b) in enumerate(zip(out, out[1:], strict=False)):
+        if b.accidental and b.start > a.start:
+            out[i] = replace(a, end_trim=b.start - a.start)
     return key, out
 
 
@@ -435,6 +439,8 @@ def pitch_events(melody: Melody, rs: RenderSettings, resolution: tuple[int, int]
         xb = L.playhead_x + (n.start - b / 100) * v
         move = f"\\an7\\move({xa:.1f},0,{xb:.1f},0,0,{(b - a) * 10})"
         length = max(bh, (n.end - n.start) * v - 2 * gx)
+        if n.end_trim:  # leave room for the next note's accidental
+            length = max(bh, min(length, n.end_trim * v - gx - (ACC_OFFSET + 0.55 * ACC_SCALE) * sp))
         y = L.y(n.pos)
         bar = Shape().rounded_rect(gx, y - bh / 2, gx + length, y + bh / 2, bh / 2)
         ev.append(Event(a, b, "Pitch", f"{{{move}{clip_all}\\1c{unsung}\\1a&H{NOTE_ALPHA:02X}&{bord}{p}}}{bar}{{\\p0}}",

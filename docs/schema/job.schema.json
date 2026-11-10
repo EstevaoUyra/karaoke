@@ -131,6 +131,15 @@
           "title": "Show Pitch",
           "type": "boolean"
         },
+        "pitch_style": {
+          "default": "roll",
+          "enum": [
+            "roll",
+            "staff"
+          ],
+          "title": "Pitch Style",
+          "type": "string"
+        },
         "pitch_lookahead_s": {
           "default": 4.0,
           "title": "Pitch Lookahead S",

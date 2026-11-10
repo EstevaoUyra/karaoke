@@ -71,8 +71,11 @@ class RenderSettings(_Model):
     lead_in_s: float = 1.5  # show a line this long before it starts
     countdown_gap_s: float = 4.0  # show countdown before lines after gaps longer than this
     show_title_card: bool = True
-    # pitch guide: the sung melody (melody.json) as bars on a treble staff at the top of the screen
+    # pitch guide: the sung melody (melody.json) as bars at the top of the screen
     show_pitch: bool = False
+    # "roll": one row per semitone, the voice's pitch line and the words under the notes
+    # (render.roll); "staff": a treble staff with key signature and accidentals (render.staff)
+    pitch_style: Literal["roll", "staff"] = "roll"
     pitch_lookahead_s: float = 4.0  # notes enter on the right this long before they are sung
     pitch_trail_s: float = 1.0  # ... and stay visible this long left of the playhead
     pitch_min_conf: float = 0.0  # hide notes whose confidence is below this
