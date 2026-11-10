@@ -125,6 +125,26 @@
           "default": true,
           "title": "Show Title Card",
           "type": "boolean"
+        },
+        "show_pitch": {
+          "default": false,
+          "title": "Show Pitch",
+          "type": "boolean"
+        },
+        "pitch_lookahead_s": {
+          "default": 4.0,
+          "title": "Pitch Lookahead S",
+          "type": "number"
+        },
+        "pitch_trail_s": {
+          "default": 1.0,
+          "title": "Pitch Trail S",
+          "type": "number"
+        },
+        "pitch_min_conf": {
+          "default": 0.0,
+          "title": "Pitch Min Conf",
+          "type": "number"
         }
       },
       "title": "RenderSettings",
@@ -137,6 +157,7 @@
         "lyrics_fetch",
         "transcribe",
         "align",
+        "melody",
         "backgrounds",
         "render"
       ],

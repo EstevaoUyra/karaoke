@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def now() -> datetime:
@@ -31,6 +31,7 @@ class StageName(StrEnum):
     lyrics_fetch = "lyrics_fetch"
     transcribe = "transcribe"
     align = "align"
+    melody = "melody"  # sung melody + key for the pitch guide (after align: uses word timings)
     backgrounds = "backgrounds"
     render = "render"
 
@@ -70,6 +71,11 @@ class RenderSettings(_Model):
     lead_in_s: float = 1.5  # show a line this long before it starts
     countdown_gap_s: float = 4.0  # show countdown before lines after gaps longer than this
     show_title_card: bool = True
+    # pitch guide: the sung melody (melody.json) as bars on a treble staff at the top of the screen
+    show_pitch: bool = False
+    pitch_lookahead_s: float = 4.0  # notes enter on the right this long before they are sung
+    pitch_trail_s: float = 1.0  # ... and stay visible this long left of the playhead
+    pitch_min_conf: float = 0.0  # hide notes whose confidence is below this
 
 
 class JobSettings(_Model):
@@ -90,6 +96,12 @@ class Job(_Model):
     stages: dict[StageName, StageState] = Field(
         default_factory=lambda: {s: StageState() for s in StageName}
     )
+
+    @field_validator("stages")
+    @classmethod
+    def _all_stages(cls, v: dict[StageName, StageState]) -> dict[StageName, StageState]:
+        """Jobs created before a stage was added get a pending state for it."""
+        return {s: v.get(s, StageState()) for s in StageName}
 
 
 # --------------------------------------------------------------------------- meta.json
@@ -261,6 +273,45 @@ class Background(_Model):
     scenes: list[Scene]
 
 
+# --------------------------------------------------------------------------- melody.json
+
+
+class Note(_Model):
+    start: float
+    end: float
+    midi: int  # sounding pitch, MIDI number (60 = C4)
+    pitch: float  # median f0 of the note in fractional MIDI (intonation, before rounding)
+    conf: float = 1.0  # 0..1: mean pyin voicing probability over the note
+
+
+class KeyEstimate(_Model):
+    tonic: str  # spelled tonic, e.g. "F#", "Bb"
+    tonic_pc: int  # pitch class, 0 = C
+    mode: Literal["major", "minor"]
+    fifths: int  # key signature: >0 sharps, <0 flats
+    accidentals: list[str] = Field(default_factory=list)  # e.g. ["F#", "C#"] in signature order
+    confidence: float = 0.0  # Krumhansl-Schmuckler correlation of the best key (-1..1)
+    margin: float = 0.0  # best correlation minus the runner-up's
+    runner_up: str | None = None  # second-best key, e.g. "E minor"
+    method: str = "krumhansl-schmuckler"
+
+
+class Melody(_Model):
+    """melody.json: the sung melody of the vocal stem as notes, plus the song's key."""
+
+    version: Literal[1] = 1
+    hop_s: float  # pitch-tracker hop the notes were segmented from
+    notes: list[Note]
+    key: KeyEstimate | None = None
+    median_midi: float | None = None
+    tuning: float = 0.0  # semitones the singing sits off A440 equal temperament (taken out before rounding)
+    # octaves the guide shifts the notes by to fit a treble staff (+1: written an octave above
+    # the sounding pitch, shown as "8vb" under the clef; -1: an octave below, "8va" above it)
+    display_octave_shift: int = 0
+    params: dict[str, float | int | str | bool] = Field(default_factory=dict)
+    updated_at: datetime = Field(default_factory=now)
+
+
 # --------------------------------------------------------------------------- export
 
 
@@ -271,4 +322,5 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "lyrics_choice": LyricsChoice,
     "lyrics_final": LyricsFinal,
     "background": Background,
+    "melody": Melody,
 }

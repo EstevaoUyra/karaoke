@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "KeyEstimate": {
+      "additionalProperties": false,
+      "properties": {
+        "tonic": {
+          "title": "Tonic",
+          "type": "string"
+        },
+        "tonic_pc": {
+          "title": "Tonic Pc",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "major",
+            "minor"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "fifths": {
+          "title": "Fifths",
+          "type": "integer"
+        },
+        "accidentals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accidentals",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "margin": {
+          "default": 0.0,
+          "title": "Margin",
+          "type": "number"
+        },
+        "runner_up": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runner Up"
+        },
+        "method": {
+          "default": "krumhansl-schmuckler",
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tonic",
+        "tonic_pc",
+        "mode",
+        "fifths"
+      ],
+      "title": "KeyEstimate",
+      "type": "object"
+    },
+    "Note": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "midi": {
+          "title": "Midi",
+          "type": "integer"
+        },
+        "pitch": {
+          "title": "Pitch",
+          "type": "number"
+        },
+        "conf": {
+          "default": 1.0,
+          "title": "Conf",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "midi",
+        "pitch"
+      ],
+      "title": "Note",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "melody.json: the sung melody of the vocal stem as notes, plus the song's key.",
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "hop_s": {
+      "title": "Hop S",
+      "type": "number"
+    },
+    "notes": {
+      "items": {
+        "$ref": "#/$defs/Note"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "key": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KeyEstimate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "median_midi": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Median Midi"
+    },
+    "tuning": {
+      "default": 0.0,
+      "title": "Tuning",
+      "type": "number"
+    },
+    "display_octave_shift": {
+      "default": 0,
+      "title": "Display Octave Shift",
+      "type": "integer"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hop_s",
+    "notes"
+  ],
+  "title": "Melody",
+  "type": "object"
+}

@@ -61,8 +61,20 @@ def test_create_job_is_idempotent(store: JobStore):
 
 def test_select_stages():
     assert select_stages() == ORDER
-    assert select_stages(StageName.align) == [StageName.align, StageName.backgrounds, StageName.render]
+    assert select_stages(StageName.align) == [StageName.align, StageName.melody, StageName.backgrounds,
+                                              StageName.render]
     assert select_stages(only=[StageName.render, StageName.ingest]) == [StageName.ingest, StageName.render]
+
+
+def test_old_job_json_gets_new_stages(store: JobStore):
+    """A job.json written before the melody stage existed still loads, with melody pending."""
+    job = store.create(job_id="old")
+    raw = json.loads(store.paths("old").job.read_text())
+    del raw["stages"]["melody"]
+    store.paths("old").job.write_text(json.dumps(raw))
+    job = store.load("old")
+    assert list(job.stages) == list(StageName)
+    assert job.stages[StageName.melody].status == StageStatus.pending
 
 
 def test_runner_caches_and_reruns_on_input_change(demo_no_audio, monkeypatch):

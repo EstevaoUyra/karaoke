@@ -53,6 +53,10 @@ YouTube URL
      (optional) AI skill: karaoke-lyrics-review  ── edits lyrics.final.json
                 │
                 ▼
+[5b melody] pyin f0 on vocals.wav → notes (+ word starts split held notes), key
+            (Krumhansl–Schmuckler on notes + instrumental chroma) → melody.json
+                │
+                ▼
 [6 backgrounds] default: background.json with 1 scene (solid colour / gradient / single image)
      (optional) AI skill: karaoke-backgrounds ── art-directed scene timeline + images
      (optional) UI: replace or lock any scene (upload / URL / web search)
@@ -83,6 +87,8 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
   lyrics/chosen.txt                 # canonical text used for alignment (+ which source)
   transcript.whisper.json           # segments + words {text,start,end,prob}
   lyrics.final.json                 # ← the important one
+  melody.json                       # sung notes + key, for the optional pitch guide (render.show_pitch)
+  cache/melody.f0.npz               # raw pyin contour, reused while vocals.wav is unchanged
   background.json
   assets/bg/*.jpg                   # downloaded/uploaded images + credits.json
   output/karaoke.ass  output/preview.mp4  output/karaoke.mp4
@@ -167,6 +173,11 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
 - Layout: current line plus the next line (dimmed). Lines appear ~1.5 s before they start. A **countdown indicator** shows before lines that follow a gap of more than 4 s. A title card (title / artist) covers the intro.
 - Background compositor: build one background video from `background.json` with `ffmpeg` (`zoompan` for Ken Burns, `xfade` for transitions), then overlay the ASS. Plan B if the filtergraph gets unwieldy: render background frames with Pillow/numpy and pipe them to ffmpeg.
 - Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 20).
+- **Optional pitch guide** (`render.show_pitch`, off by default): the sung melody from `melody.json`
+  as bars on a real treble staff (clef, key signature, ledger lines, ♯/♭/♮ for notes outside the
+  key, "8vb"/"8va" octave shift) at the top of the screen. Notes scroll right to left past a fixed
+  playhead and fill with the sung colour as they cross it. It is drawn in the same ASS (libass vector
+  drawings, `\move` + `\clip`), so rendering is still one ffmpeg pass. See `karaoke/render/staff.py`.
 - **The in-browser preview needs no rendering.** The UI plays `instrumental.wav` with an HTML/CSS lyric overlay driven by `lyrics.final.json`, so lyric edits can be checked instantly.
 
 ### Backend / UI

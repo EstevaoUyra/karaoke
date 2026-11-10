@@ -110,6 +110,7 @@ _FILES = {
     "lyrics_choice": "lyrics/chosen.json",
     "lyrics_final": "lyrics.final.json",
     "background": "background.json",
+    "melody": "melody.json",
 }
 
 
