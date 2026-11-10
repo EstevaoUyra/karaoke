@@ -221,3 +221,146 @@ frames the old version also had notes):
   the original note more often than the in-key neighbour (EN 9 vs 5, PT 12 vs 5; no margin from
   0.2 to 0.35 made the in-key side win clearly). The out-of-key notes are mostly real (blue notes,
   speech-like lines), so the notes are left as tracked.
+
+## Melody against human references (2026-11-10)
+
+First score against annotations made by people: `spikes/score_gold.py` on the local gold set
+(`data/gold`, not in the repo: Rock Corpus transcriptions of whole songs, Hooktheory lead sheets of
+one section). crepe-tiny, melody method 2. "Pitch" = our note is the reference's semitone, over all
+reference notes; "found" = we have any note there; onsets matched within 0.15 s.
+
+| Song | Ref notes | Found | Pitch | ±1 semitone | Onset F |
+|---|---|---|---|---|---|
+| Deu Onda (section) | 42 | 100 % | 86 % | 90 % | 77 % |
+| Mas Que Nada (section) | 28 | 100 % | 75 % | 75 % | 55 % |
+| Nothing Compares 2 U | 331 | 97 % | 70 % | 89 % | 66 % |
+| Imagine | 220 | 100 % | 69 % | 85 % | 74 % |
+| Tudo Que Você Podia Ser (sections) | 119 | 73 % | 56 % | 61 % | 65 % |
+| Respect | 246 | 88 % | 47 % | 63 % | 62 % |
+| Bohemian Rhapsody | 539 | 88 % | 47 % | 57 % | 66 % |
+| Billie Jean | 509 | 92 % | 45 % | 66 % | 66 % |
+
+- The most common error is one semitone flat (Imagine 15 %, Nothing Compares 2 U 14 %, Respect 12 %
+  of found notes), far more often than one semitone sharp. Not yet explained: scoops at the note
+  start, the tuning offset, or the transcribers writing the intended note are all candidates.
+- Octave errors are rare (0–4 %) except in Bohemian Rhapsody's stacked voices.
+- Mas Que Nada: 21 % of notes are a fourth above the reference: we follow a harmony voice.
+- Ai Se Eu Te Pego is left out: the reference's octave is unknown and only 28 % of pitch classes
+  agree, with a cluster 13 semitones off. The reference's alignment was never confirmed.
+- The references are not exact: Rock Corpus onsets are quantised to a grid and have no note ends,
+  Hooktheory rhythm is simplified. Treat differences of a few points as noise.
+
+## Melody: fast notes, measured on solo clips (2026-11-10, melody method 3)
+
+Why the scores above are low, in order of weight:
+
+1. **The references and the stems, not the tracker.** Reading the raw contour directly under each
+   reference note scores the same as our notes; crepe-full scores the same as crepe-tiny (Imagine
+   69 vs 70 %, Respect 54 vs 51 %, Billie Jean 50 vs 49 %; pyin is far worse on stems). Where the
+   voice is steady the contour agrees with the reference 85–90 % of the time (Imagine, Nothing
+   Compares 2 U); the misses are where a reference note spans a moving pitch or a backing-vocal
+   answer (Respect: 22 % on reference notes longer than 0.5 s).
+2. **Two people do not agree either.** On vocadito (40 solo clips, exact notes by two annotators;
+   `spikes/score_vocadito.py`) annotator A2 has a note within 50 cents of A1's on 80 % of A1's notes.
+3. **Note-making lost fast notes.** On vocadito the contour is within 50 cents on 97.9 % of sung
+   frames and under 96 % of the exact reference notes, but our notes reached only 73 %: notes around
+   0.1 s were merged into a neighbour (17 % of reference notes) or dropped (9 %).
+
+Change (method 3): a short run is kept when the voice sits on the semitone for at least 0.08 s
+(`MIN_SHORT_S`, range ≤ 0.6 semitones, centred), hysteresis 0.7 → 0.5, voiced runs and notes kept
+down to 0.05 s. Merely lowering the minimums scored the same but put a passing note on every leap.
+
+| vocadito, per reference note | A2 vs A1 | method 2 | method 3 |
+|---|---|---|---|
+| we have a note | 92 % | 91 % | 97 % |
+| median pitch within 50 cents | 80 % | 73 % | 81 % |
+| semitone label within 50 cents | 80 % | 69 % | 77 % |
+| onset 50 ms + pitch 50 cents, F | 74 % | 62 % | 67 % |
+| precision of that | 81 % | 78 % | 75 % |
+
+| Full songs, exact semitone | method 2 | method 3 |
+|---|---|---|
+| Deu Onda | 86 % | 86 % |
+| Mas Que Nada | 75 % | 75 % |
+| Nothing Compares 2 U | 70 % | 75 % |
+| Imagine | 69 % | 71 % |
+| Tudo Que Você Podia Ser | 56 % | 61 % |
+| Respect | 47 % | 52 % |
+| Bohemian Rhapsody | 47 % | 49 % |
+| Billie Jean | 45 % | 46 % |
+
+The cost: about 15 % more notes on full songs and onset precision down 3–5 points.
+Not tried: a lead-vocal model to take backing vocals out of the stem, the likely next gain on
+songs like Respect and Bohemian Rhapsody.
+
+## Melody: the song's own pitch profile (2026-11-10, melody method 4)
+
+Music knowledge as a prior, tested against the human references this time.
+
+- **Adopted: the song's own profile** (`notes.refine_by_profile`). A note moves one semitone when
+  the voice wavers on it (≤ 70 % of its frames on its own semitone), part of it already sits on the
+  neighbour (≥ 15 %), and the neighbour's pitch class has ≥ 2× more of the song's note time. No key
+  estimate: a blues or a modulating song has a wider profile and is corrected less. Steady notes
+  never move. Needs 30 s of notes, so vocadito's short clips are untouched (scores identical).
+- **Not adopted: snapping to the estimated key.** Out-of-key is a strong sign of an error (30–50 %
+  of our wrong notes, under 5 % of the right ones on diatonic songs), and a plain snap gains a lot
+  on Billie Jean (+59 notes / −6) and Imagine (+18 / 0), but it loses on Respect (+11 / −31),
+  Bohemian Rhapsody (+14 / −36) and Nothing Compares 2 U (+27 / −31, where our key estimate is
+  probably wrong). The profile rule gets most of the gain without the losses.
+- **Not adopted: voting across repeated lines.** For words in lines sung more than once, the
+  majority pitch replaced a differing one. With audio support required it moved 21 notes over the
+  whole set (+0.1 point); without it, it lost. Singers vary the repeats.
+
+| Full songs, exact semitone | method 2 | method 3 | method 4 |
+|---|---|---|---|
+| Deu Onda | 86 % | 86 % | 86 % |
+| Mas Que Nada | 75 % | 75 % | 79 % |
+| Nothing Compares 2 U | 70 % | 75 % | 78 % |
+| Imagine | 69 % | 71 % | 78 % |
+| Tudo Que Você Podia Ser | 56 % | 61 % | 65 % |
+| Respect | 47 % | 52 % | 55 % |
+| Billie Jean | 45 % | 46 % | 52 % |
+| Bohemian Rhapsody | 47 % | 49 % | 49 % |
+| Mean | 61.9 % | 64.4 % | 67.7 % |
+
+The three thresholds were chosen on these same eight songs (a coarse grid; the neighbouring
+settings score within 0.5 point and none makes any song worse), so the gain is not a held-out
+number.
+
+## Melody: error patterns, separation and harmony tests (2026-11-10, method 4)
+
+`spikes/score_gold.py` now also prints a timing-tolerant score (`loose`: our note of the right
+semitone sounds within 0.15 s of the scored window), both scores over notes of at least 0.2 s,
+and a split by note length.
+
+| Mean of the 8 songs | all notes | notes ≥ 0.2 s |
+|---|---|---|
+| exact semitone at the reference's instant | 68 % | 72 % |
+| exact semitone, timing-tolerant | 76 % | 80 % |
+| within a semitone, timing-tolerant | 82 % | 85 % |
+
+| Note length | share of notes | exact | timing-tolerant |
+|---|---|---|---|
+| under 0.15 s | 9 % | 47 % | 62 % |
+| 0.15–0.3 s | 40 % | 56 % | 67 % |
+| 0.3–0.6 s | 35 % | 64 % | 74 % |
+| over 0.6 s | 17 % | 69 % | 79 % |
+
+What happens to a reference note (all songs pooled): correct 60.5 %, right pitch within 0.25 s
+12.1 %, no note 6.0 % (27 % on Tudo Que Você Podia Ser), 1–2 semitones off 9.2 %, a third to a
+sixth off 7.0 %, octave 2.2 %, other 3.0 %. Onsets have no systematic lead or lag (medians within
+±30 ms), but 17–30 % differ by more than 150 ms: the references are quantised.
+
+Tried, not adopted:
+- **Lead/backing separation** (`UVR_MDXNET_KARA_2.onnx` on the vocal stem, about 1× real time,
+  then crepe-tiny on the lead, loudness gate from the full stem). Exact semitone: Bohemian Rhapsody
+  49 → 56 %, Imagine 78 → 79 %, Respect 55 → 52 %, Billie Jean 52 → 47 %, Mas Que Nada 79 → 64 %
+  (it removes the group vocal that is the melody). On Respect the stem and the lead agree on 85 %
+  of notes and are right on only 56 % of those: backing vocals are not what is wrong there.
+- **Trackers as an ensemble** (crepe-tiny, crepe-full, pyin on the same stem): any of the three
+  right gains 5–14 points as an upper bound; agreement between the two CREPE models is a good
+  doubt signal (ours is right 56–73 % when they agree, 21–44 % when they differ). Not built:
+  crepe-full costs 2.4–2.9× real time.
+- **Chords from the instrumental** (24 triads, Viterbi-smoothed, as the tie-break for wavering
+  notes): 64.4 → 64.8 % alone; the instrumental's chroma itself 66.0 %; neither adds anything
+  on top of the song-profile rule (67.6 %), and a local profile (±20–40 s) is slightly worse.

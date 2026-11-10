@@ -15,7 +15,7 @@ probability and CREPE's periodicity are on different scales.
    ``Profile.word_level_db``) of the stem's loud level: echo tails and leakage are pitched but quiet.
 2. **Bridging**: inside a word, unvoiced gaps up to ``Profile.bridge_s`` between voiced frames
    whose pitches agree (within ``BRIDGE_ST``) are filled (a consonant or a tracker dropout in the
-   middle of a held note). Then voiced runs shorter than ``MIN_NOTE_S`` are dropped.
+   middle of a held note). Then voiced runs shorter than ``MIN_RUN_S`` are dropped.
 3. **Tuning**: the singer's (or recording's) offset from A440, the circular mean of the notes'
    distance to the nearest semitone (from a first pass), is taken out before quantising.
 4. **Quantise with hysteresis**: the contour (in fractional MIDI) is smoothed with a moving median
@@ -23,7 +23,9 @@ probability and CREPE's periodicity are on different scales.
    smoothed pitch is more than ``HYSTERESIS`` semitones away from it. Vibrato and intonation
    jitter stay inside one note.
 5. **Merge**: label runs shorter than ``MIN_STATE_S`` (slides, scoops into a note) join the
-   neighbour closest in pitch. Each run's pitch is the median of its raw frames; neighbours with the
+   neighbour closest in pitch, unless the voice sits on the semitone for at least ``MIN_SHORT_S``
+   (a fast note: its raw pitch stays within ``SHORT_RANGE`` and centred on the semitone).
+   Each run's pitch is the median of its raw frames; neighbours with the
    same pitch and less than ``MERGE_GAP_S`` between them become one note.
 6. **Octave errors**: a note an octave (±1) away from both neighbours, which agree with each other,
    is moved to their octave. (A phrase-level version, against the median of the notes within 3 s,
@@ -36,6 +38,8 @@ probability and CREPE's periodicity are on different scales.
    leakage); a note held across a word start is split there, so each syllable gets its own bar;
    and a gap of up to ``Profile.close_gap_s`` between two notes of the same word is closed (the
    first note is held until the next one starts).
+9. **The song's own profile** (``refine_by_profile``): a wavering note next to a pitch class the
+   song uses much more moves onto it. See docs/benchmarks.md for what it gains.
 """
 
 from __future__ import annotations
@@ -50,10 +54,21 @@ STABLE_RANGE = 0.6  # a steady pitch stays within this many semitones over STABL
 SMOOTH_RANGE = 2.5  # a smoothly moving (sung) pitch stays within this; noise jumps around
 LOUD_PERCENTILE = 95.0
 SMOOTH_S = 0.2  # moving-median window (about one vibrato cycle at 5-6 Hz)
-HYSTERESIS = 0.7  # semitones the smoothed pitch must leave the current note by to change note
+# The thresholds below were set on vocadito (40 solo clips with exact human notes) and
+# confirmed on full songs: see docs/benchmarks.md. Longer minimums swallow fast notes into a
+# neighbour; shorter ones split vibrato into extra notes.
+HYSTERESIS = 0.5  # semitones the smoothed pitch must leave the current note by to change note
 MIN_STATE_S = 0.14  # shorter label runs inside a voiced run are glides/scoops: merged into a neighbour
 MERGE_GAP_S = 0.1  # same pitch with a shorter gap: one note
-MIN_NOTE_S = 0.12  # shorter notes are dropped
+MIN_SHORT_S = 0.08  # ... unless the voice holds the semitone for at least this long (a fast note):
+SHORT_RANGE = 0.6  # its pitch stays within this many semitones ...
+SHORT_CENTRE = 0.4  # ... and its median is this close to the semitone
+PROFILE_MIN_S = 30.0  # the song-profile correction needs this much note time to know the song
+PROFILE_OWN_MAX = 0.7  # a note wavers if at most this share of its frames is on its own semitone
+PROFILE_SUPPORT = 0.15  # ... and can move to a neighbour holding at least this share of them
+PROFILE_RATIO = 2.0  # ... if the neighbour's pitch class has this many times more note time
+MIN_RUN_S = 0.05  # voiced runs shorter than this are dropped (clicks)
+MIN_NOTE_S = 0.05  # shorter notes are dropped
 BRIDGE_ST = 1.5  # a dropout is bridged only between pitches this close
 OCTAVE_CONTEXT_S = 0.6  # neighbours closer than this are used to fix octave errors
 RANGE_ST = 18  # notes further than this from the melody's median (semitones) are dropped
@@ -185,7 +200,7 @@ def voiced_mask(midi: np.ndarray, prob: np.ndarray, db: np.ndarray | None, hop_s
 
 def drop_short_runs(m: np.ndarray, hop_s: float) -> np.ndarray:
     m = m.copy()
-    min_frames = max(1, int(round(MIN_NOTE_S / hop_s)))
+    min_frames = max(1, int(round(MIN_RUN_S / hop_s)))
     for a, b in _runs(m):
         if b - a < min_frames:
             m[a:b] = False
@@ -223,9 +238,19 @@ def quantise(seg: np.ndarray, hop_s: float) -> np.ndarray:
             cur = int(round(v))
         labels[i] = cur
     min_state = max(1, int(round(MIN_STATE_S / hop_s)))
+    min_short = max(1, int(round(MIN_SHORT_S / hop_s)))
+
+    def held(a: int, b: int, lab: int) -> bool:
+        """A short run that is a note of its own: the voice sits on the semitone, it does not
+        pass through it."""
+        if b - a < min_short:
+            return False
+        part = seg[a:b]
+        return float(np.ptp(part)) <= SHORT_RANGE and abs(float(np.median(part)) - lab) <= SHORT_CENTRE
+
     while True:  # merge the shortest too-short run into its closest neighbour, until none is left
         runs = _label_runs(labels)
-        short = [(b - a, k) for k, (a, b, _) in enumerate(runs) if b - a < min_state]
+        short = [(b - a, k) for k, (a, b, lab) in enumerate(runs) if b - a < min_state and not held(a, b, lab)]
         if not short or len(runs) == 1:
             break
         _, k = min(short)
@@ -359,6 +384,39 @@ def close_gaps(notes: list[RawNote], words: list[tuple[float, float]], max_gap: 
     return changed
 
 
+def refine_by_profile(notes: list[RawNote], midi: np.ndarray, hop_s: float) -> int:
+    """Move wavering notes onto the pitches the song actually uses. In place; returns the count.
+
+    A song keeps to a handful of pitch classes (its key, plus its own blue notes); a pitch class
+    it hardly uses is suspect. A note moves one semitone when all of these hold:
+
+    - the voice wavers: at most ``PROFILE_OWN_MAX`` of the note's frames sit on its own semitone;
+    - part of it is already on the neighbour: at least ``PROFILE_SUPPORT`` of its frames;
+    - the neighbour's pitch class carries ``PROFILE_RATIO`` times more of the song's note time.
+
+    A steadily held note never moves, however unusual. The profile is the song's own (note time
+    per pitch class), so no key estimate is involved: a blues or a modulating song has a wider
+    profile and is corrected less. Needs ``PROFILE_MIN_S`` of notes. ``midi`` is the contour in
+    fractional MIDI with the tuning offset taken out.
+    """
+    if sum(n.dur for n in notes) < PROFILE_MIN_S:
+        return 0
+    use = np.zeros(12)
+    for n in notes:
+        use[n.midi % 12] += n.dur
+    moved = 0
+    for n in notes:
+        seg = midi[max(0, int(n.start / hop_s)):int(n.end / hop_s) + 1]
+        lab = np.round(seg[np.isfinite(seg)])
+        if not len(lab) or np.mean(lab == n.midi) > PROFILE_OWN_MAX:
+            continue
+        share, step = max((float(np.mean(lab == n.midi + d)), d) for d in (-1, 1))
+        if share >= PROFILE_SUPPORT and use[(n.midi + step) % 12] >= PROFILE_RATIO * max(use[n.midi % 12], 1e-6):
+            n.midi += step
+            moved += 1
+    return moved
+
+
 def circular_offset(pitches: list[float] | np.ndarray, weights: list[float] | np.ndarray | None = None) -> float:
     """Weighted circular mean of the pitches' distance to the nearest semitone (-0.5..0.5)."""
     m = np.asarray(pitches, dtype=float)
@@ -376,13 +434,13 @@ def estimate_tuning(midi: np.ndarray, prob: np.ndarray, hop_s: float, db: np.nda
     circular mean of the notes' median pitches (a first pass without tuning or words). Per-note
     medians, not frames: vibrato spreads frames evenly over a semitone and would make the mean
     arbitrary."""
-    notes = segment(midi, prob, hop_s, db=db, tuning=0.0, prof=prof)
+    notes = segment(midi, prob, hop_s, db=db, tuning=0.0, prof=prof, refine=False)
     return circular_offset([n.pitch for n in notes], [n.dur for n in notes])
 
 
 def segment(midi: np.ndarray, prob: np.ndarray, hop_s: float, db: np.ndarray | None = None,
             words: list[tuple[float, float]] | None = None, tuning: float | None = None,
-            prof: Profile = PROFILES["pyin"]) -> list[RawNote]:
+            prof: Profile = PROFILES["pyin"], refine: bool = True) -> list[RawNote]:
     """Notes from a contour sampled every ``hop_s`` (frame ``i`` is centred on ``i * hop_s``).
 
     ``midi`` is fractional MIDI (NaN where the tracker found no pitch), ``prob`` the tracker's
@@ -417,6 +475,8 @@ def segment(midi: np.ndarray, prob: np.ndarray, hop_s: float, db: np.ndarray | N
         notes = split_at_words(notes, [s for s, _ in words])
         if prof.use_words:
             close_gaps(notes, words, prof.close_gap_s)
+    if refine:
+        refine_by_profile(notes, midi - tuning, hop_s)
     for n in notes:
         n.start, n.end, n.pitch, n.conf = round(n.start, 3), round(n.end, 3), round(n.pitch, 2), round(n.conf, 3)
     return notes
