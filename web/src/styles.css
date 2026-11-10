@@ -316,6 +316,31 @@ video { width: 100%; border-radius: var(--r-stage); background: #000; display: b
 .cmd { display: flex; gap: 0.5rem; align-items: center; background: var(--sunk); border-radius: var(--r-input); padding: 0.4rem 0.6rem; }
 .cmd code { flex: 1; overflow-x: auto; white-space: nowrap; }
 
+/* ------------------------------------------------------------------ melody: mixer, piano roll */
+
+.mixer { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center; }
+.strip-ch { display: flex; align-items: center; gap: 0.35rem; }
+.strip-ch input[type="range"] { width: 84px; }
+.strip-ch.off input[type="range"] { opacity: 0.4; }
+.mixer-presets { display: flex; gap: 0.3rem; margin-left: auto; flex-wrap: wrap; }
+.melody {
+  display: grid; gap: 0.4rem; padding: 0.6rem 0.75rem 0.75rem; border-radius: var(--r-stage);
+  background: linear-gradient(180deg, #17132c, #120f22); color: #e9e6f5;
+}
+.melodybar { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; align-items: center; font-size: 0.86rem; }
+.melody .melodybar { color: rgba(233, 230, 245, 0.8); }
+.melody .melodybar b { color: #fff; font-weight: 650; }
+.melody .faint { color: rgba(233, 230, 245, 0.55); }
+.melody .button, .melody button { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.2); color: #fff; }
+.melody input[type="checkbox"] { accent-color: var(--sung); }
+.melody label { color: rgba(233, 230, 245, 0.8); }
+.gapinfo { color: #f2b33d; }
+.editor-main > .melodybar {
+  padding: 0.6rem 0.8rem; border-radius: var(--r-panel); background: var(--panel); border: 1px solid var(--rule);
+}
+.pianoroll { position: relative; cursor: pointer; }
+.pianoroll canvas { display: block; }
+
 @media (max-width: 960px) {
   .editor, .two { grid-template-columns: 1fr; }
   .side { position: static; }

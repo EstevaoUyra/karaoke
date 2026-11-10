@@ -4,6 +4,8 @@ import { ApiError, api } from "../api";
 import { useServerEvent } from "../events";
 import { Inspector } from "../components/Inspector";
 import { LineRow } from "../components/LineRow";
+import { MelodyPanel, useMelody } from "../components/MelodyPanel";
+import { Mixer } from "../components/Mixer";
 import { PasteLyrics } from "../components/PasteLyrics";
 import { PlayAlong } from "../components/PlayAlong";
 import { Clock, Timeline } from "../components/Timeline";
@@ -41,7 +43,7 @@ export function LyricsTab({ detail }: { detail: JobDetail }) {
   const [saving, setSaving] = useState(false);
   const [bg, setBg] = useState<BackgroundDoc | null>(null);
   const [follow, setFollow] = useState(true);
-  const [guide, setGuide] = useState(false);
+  const [exact, setExact] = useState(false);
 
   const docRef = useRef(doc);
   const tapRef = useRef(tap);
@@ -55,6 +57,17 @@ export function LyricsTab({ detail }: { detail: JobDetail }) {
   };
 
   const { player, loading, error: audioError, vocalsLoading, loadVocals } = usePlayer(id, detail.files.instrumental?.mtime ?? null);
+  const mel = useMelody(id);
+  useEffect(() => {
+    const m = mel.melody;
+    if (!m) return player.setNotes([]);
+    // exact: the pitch the singer hit (tuning included); otherwise the rounded note in the song's tuning
+    player.setNotes(m.notes.map((n) => ({ start: n.start, end: n.end, conf: n.conf, midi: exact ? n.pitch : n.midi })),
+      exact ? 0 : m.tuning);
+  }, [mel.melody, exact, player]);
+  const ensureVocals = async () => {
+    if (detail.files.vocals) await loadVocals(detail.files.vocals.mtime);
+  };
 
   // ------------------------------------------------------------------ loading and live updates
   const load = useCallback(() => {
@@ -373,6 +386,8 @@ export function LyricsTab({ detail }: { detail: JobDetail }) {
         <PlayAlong jobId={id} lines={doc.lines} player={player} render={render} background={bg} tapLabel={tapLabel}
           tapDown={!!tap?.down} onWordClick={onWord}
           idle={loading ? "Loading the instrumental…" : audioError} />
+        <MelodyPanel jobId={id} player={player} melody={mel.melody} contour={mel.contour} missing={mel.missing}
+          lyrics={doc} running={running} exact={exact} setExact={setExact} />
         <div className="transport">
           <div className="row">
             <button className="primary" style={{ minWidth: "5.5rem" }} disabled={loading || !!audioError}
@@ -387,20 +402,6 @@ export function LyricsTab({ detail }: { detail: JobDetail }) {
               <option value={0.75}>0.75×</option>
               <option value={0.5}>0.5×</option>
             </select>
-            <button className={`small ${guide ? "on" : ""}`} disabled={!detail.files.vocals || vocalsLoading}
-              title="Mix the vocal stem back in, quietly, to hear where words are"
-              onClick={async () => {
-                const on = !guide;
-                setGuide(on);
-                if (on && detail.files.vocals) await loadVocals(detail.files.vocals.mtime);
-                player.vocals = on ? 0.4 : 0;
-              }}>
-              {vocalsLoading ? "Loading vocals…" : "Guide vocals"}
-            </button>
-            {guide && (
-              <input type="range" min={0} max={1} step={0.05} value={player.vocals} aria-label="Guide vocals volume"
-                onChange={(e) => (player.vocals = Number(e.target.value))} style={{ width: 90 }} />
-            )}
             <span className="spacer" />
             <label className="row" style={{ gap: "0.3rem" }}>
               <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
@@ -414,6 +415,8 @@ export function LyricsTab({ detail }: { detail: JobDetail }) {
               </>
             )}
           </div>
+          <Mixer player={player} canVocals={!!detail.files.vocals} canMelody={!!mel.melody?.notes.length}
+            vocalsLoading={vocalsLoading} ensureVocals={ensureVocals} />
           <Timeline lines={doc.lines} player={player} duration={duration ?? player.duration} errorLines={errorLines}
             onSeek={(t) => player.seek(t)} />
         </div>
