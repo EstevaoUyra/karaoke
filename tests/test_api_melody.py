@@ -159,13 +159,15 @@ def test_melody_404_then_served(client, demo):
     assert parse_smf(mid.content)["tracks"][0][0][3] == b"Sing It Loud (melody)"
 
 
-def test_contour_is_downsampled(client, demo):
+@pytest.mark.parametrize("conf_key", ["conf", "prob"])  # the melody stage's cache (v2+) and v1 caches
+def test_contour_is_downsampled(client, demo, conf_key):
     n = 600  # 24 s at 40 ms
     f0 = np.full(n, np.nan, dtype=np.float32)
     f0[50:100] = 329.63  # E4 from 2.0 s to 4.0 s
     prob = np.where(np.isfinite(f0), 0.9, 0.05).astype(np.float32)
     demo.melody_f0.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(demo.melody_f0, f0=f0, prob=prob, hop_s=0.04, vocals_hash=file_hash(demo.vocals), version=1)
+    np.savez_compressed(demo.melody_f0, f0=f0, hop_s=0.04, vocals_hash=file_hash(demo.vocals), version=1,
+                        **{conf_key: prob})
     r = client.get("/api/jobs/demo/melody/contour?max_points=150").json()
     assert len(r["t"]) == len(r["hz"]) == len(r["conf"]) == 150
     assert r["step_s"] == pytest.approx(0.16) and not r["stale"]
