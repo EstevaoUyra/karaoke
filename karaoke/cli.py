@@ -113,6 +113,17 @@ def validate(job_id: str) -> None:
 
 
 @app.command()
+def serve(
+    host: Annotated[str | None, typer.Option(help="Default: KARAOKE_HOST or 127.0.0.1.")] = None,
+    port: Annotated[int | None, typer.Option(help="Default: KARAOKE_PORT or 8765.")] = None,
+) -> None:
+    """Start the web UI and API (build the UI first: `npm run build` in web/)."""
+    from karaoke.api.app import serve as run_server
+
+    run_server(host, port)
+
+
+@app.command()
 def schema(out: Path = Path("docs/schema")) -> None:
     """Export JSON Schemas for every contract file (consumed by the web UI's types)."""
     out.mkdir(parents=True, exist_ok=True)
