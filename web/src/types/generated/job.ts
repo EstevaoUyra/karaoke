@@ -19,6 +19,10 @@ export type GuideVocalsDb = number | null;
 export type LeadInS = number;
 export type CountdownGapS = number;
 export type ShowTitleCard = boolean;
+export type ShowPitch = boolean;
+export type PitchLookaheadS = number;
+export type PitchTrailS = number;
+export type PitchMinConf = number;
 export type StageStatus = "pending" | "running" | "done" | "failed" | "skipped";
 export type InputHash = string | null;
 export type StartedAt = string | null;
@@ -55,6 +59,10 @@ export interface RenderSettings {
   lead_in_s?: LeadInS;
   countdown_gap_s?: CountdownGapS;
   show_title_card?: ShowTitleCard;
+  show_pitch?: ShowPitch;
+  pitch_lookahead_s?: PitchLookaheadS;
+  pitch_trail_s?: PitchTrailS;
+  pitch_min_conf?: PitchMinConf;
 }
 export interface Stages {
   [k: string]: StageState;
