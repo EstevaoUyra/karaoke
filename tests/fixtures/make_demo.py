@@ -204,7 +204,55 @@ def build(jobs_dir: Path, job_id: str = "demo", audio: bool = True) -> JobPaths:
     return p
 
 
+# --------------------------------------------------------------------------- seeded errors
+
+SEEDED_ID = "demo-errors"
+# What is planted in ``build_seeded`` (the lyrics-review skill should undo all of it and nothing
+# else). The transcript keeps its own planted mishearings (``WHISPER_ERRORS``): those are decoys,
+# the lyrics are right there and must stay.
+SEEDED = [
+    "l001 is 0.9 s early (a bad synced-lyrics timestamp)",
+    "l002 says “calling” where the singer sings “cooling” (a typo in the lyrics source)",
+    "an extra line “Sing it out again” at 13.0 s that nobody sings (the source has it)",
+    "l005 has all its words interpolated over 16.6-20.0 s, far from where they are sung",
+    "the last line (“nobody's listening anymore”, 19.7 s) is missing: it is only in unmatched_audio",
+]
+
+
+def seeded_lyrics() -> LyricsFinal:
+    """``truth_lyrics`` with the errors of ``SEEDED`` planted in it."""
+    from karaoke.models import WordOrigin
+
+    lf = truth_lyrics()
+    l1, l2, l3, l4, l5, l6 = lf.lines
+    for w in l1.words:  # 1. early line
+        w.start, w.end = round(w.start - 0.9, 3), round(w.end - 0.9, 3)
+    l1.start, l1.end, l1.flags = l1.words[0].start, l1.words[-1].end, ["timing_suspect"]
+    l2.words[1].text, l2.words[1].conf, l2.words[1].origin = "calling", 0.35, WordOrigin.fuzzy  # 2. wrong word
+    extra = Line(id="l007", start=13.0, end=13.9, flags=["low_confidence"], words=[  # 3. unsung line
+        Word(text=t, start=round(13.0 + 0.225 * k, 3), end=round(13.2 + 0.225 * k, 3), conf=0.1,
+             origin=WordOrigin.interpolated) for k, t in enumerate(["Sing", "it", "out", "again"])])
+    span = (20.0 - 16.6) / len(l5.words)  # 4. interpolated mess
+    for k, w in enumerate(l5.words):
+        w.start, w.end, w.conf, w.origin = round(16.6 + k * span, 3), round(16.6 + (k + 0.9) * span, 3), 0.2, \
+            WordOrigin.interpolated
+    l5.start, l5.end, l5.flags = l5.words[0].start, l5.words[-1].end, ["low_confidence", "timing_suspect"]
+    lf.lines = [l1, l2, l3, l4, extra, l5]  # 5. the last line is gone ...
+    heard = " ".join(w.text.strip() for seg in fake_transcript().segments for w in seg.words
+                     if l6.start - 0.2 <= w.start <= l6.end)
+    lf.unmatched_audio.append(UnmatchedAudio(start=l6.start, end=l6.end, text=heard))  # ... but it was heard
+    return lf
+
+
+def build_seeded(jobs_dir: Path, job_id: str = SEEDED_ID, audio: bool = False) -> JobPaths:
+    """The demo job with ``SEEDED`` errors in lyrics.final.json; ``truth_lyrics()`` is the answer."""
+    p = build(jobs_dir, job_id, audio=audio)
+    write_model(p.lyrics_final, seeded_lyrics())
+    return p
+
+
 if __name__ == "__main__":
     target = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "jobs"
     out = build(target)
-    print(json.dumps({"job": str(out.root)}))
+    seeded = build_seeded(target, audio=True)
+    print(json.dumps({"job": str(out.root), "seeded": str(seeded.root)}))

@@ -130,6 +130,34 @@ def background(
     console.print(f"background.json: {len(bg.scenes)} scene(s), style {bg.style}")
 
 
+@app.command("lyrics-brief")
+def lyrics_brief(job_id: str) -> None:
+    """Print the synced lyrics with the evidence around them (JSON): what Whisper heard under each
+    line, flags, unmatched audio, the other lyric sources, and a list of suspects."""
+    from karaoke.lyrics_review import brief
+
+    print(json.dumps(brief(_store().paths(job_id)), indent=2, ensure_ascii=False))
+
+
+@app.command("lyrics-apply")
+def lyrics_apply(
+    job_id: str,
+    edits: Annotated[Path, typer.Argument(help="A JSON file: a list of edits (see the karaoke-lyrics-review skill).")],
+    dry_run: Annotated[bool, typer.Option(help="Check the edits and print what they would do; save nothing.")] = False,
+) -> None:
+    """Apply a list of edits to lyrics.final.json. All or nothing; hand-edited words are never touched."""
+    from karaoke.lyrics_review import EditError, apply_edits
+
+    try:
+        log = apply_edits(_store().paths(job_id), json.loads(edits.read_text()), dry_run=dry_run)
+    except EditError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    for line in log:
+        console.print(line)
+    console.print(f"{len(log)} edit(s) {'checked, nothing saved' if dry_run else 'applied'}")
+
+
 @app.command("bg-brief")
 def bg_brief(job_id: str) -> None:
     """Print what an art director needs to know about the job (JSON): sections with their lines,
