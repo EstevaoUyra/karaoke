@@ -5,7 +5,8 @@ Each scene becomes a clip of an exact number of frames:
 - ``color``: a ``color=`` source.
 - ``gradient``: a PNG made with Pillow (top → bottom, 2+ stops, lightly dithered), looped.
 - ``image``: pre-scaled with Pillow to cover the frame (once, not per frame). Static for motion
-  ``none``. Ken Burns / pan use the ``perspective`` filter (per-frame corner expressions, cubic
+  ``none``. Ken Burns / pan move at a fixed speed set by the background's ``motion_strength``,
+  whatever the scene's length. They use the ``perspective`` filter (per-frame corner expressions, cubic
   sub-pixel sampling) rather than ``zoompan``: zoompan crops on whole, chroma-aligned pixels and
   visibly jitters even on a 2x pre-upscaled image (measured: per-frame motion std 0.023 vs 0.006,
   with backward steps). perspective costs ~40 % more CPU than zoompan.
@@ -29,8 +30,11 @@ from pathlib import Path
 
 from karaoke.models import Background, BgSource, Scene
 
-KENBURNS_ZOOM = 0.12  # Ken Burns zooms 1.0 → 1.12 (or back)
-PAN_ZOOM = 1.15  # pans run at this fixed zoom, sliding across the spare width
+# How fast a still picture moves, per second: the zoom a Ken Burns gains (0.008 = 0.8 %), and the
+# share of the picture's width a pan travels. "normal" over a 15 s scene is a 12 % zoom.
+MOTION_SPEED = {"subtle": 0.004, "normal": 0.008, "strong": 0.014}
+MAX_ZOOM = 0.25  # a long scene stops gaining here: more would show the picture's pixels
+MAX_TRAVEL = 0.20
 
 
 @dataclass
@@ -134,21 +138,26 @@ def _snap_clips(scenes: list[Scene], fps: int, total: int) -> list[_Clip]:
     return clips
 
 
-def _motion_filter(motion: str, frames: int) -> str:
+def _motion_filter(motion: str, frames: int, fps: int = 30, strength: str = "normal") -> str:
     """A ``perspective`` filter that moves a crop window (left, top, width, height) frame by frame.
 
     ``W``/``H`` are the frame size and ``on`` the output frame number (perspective's variables).
+    The window moves at ``MOTION_SPEED[strength]`` per second, so a short scene moves as fast as
+    a long one and simply gets less far.
     """
     n1 = max(frames - 1, 1)
     p = f"on/{n1}"  # 0 → 1 over the clip
+    reach = MOTION_SPEED[strength] * frames / fps
     if motion in ("kenburns-in", "kenburns-out"):
-        z = f"(1+{KENBURNS_ZOOM}*{p})" if motion == "kenburns-in" else f"(1+{KENBURNS_ZOOM}*(1-{p}))"
+        zoom = f"{min(MAX_ZOOM, reach):.4f}"  # zooms 1.0 → 1 + zoom (or back)
+        z = f"(1+{zoom}*{p})" if motion == "kenburns-in" else f"(1+{zoom}*(1-{p}))"
         left, top = f"W*(1-1/{z})/2", f"H*(1-1/{z})/2"
         cw, ch = f"W/{z}", f"H/{z}"
     elif motion in ("pan-left", "pan-right"):  # pan-left: the view slides from the right edge to the left
+        travel = f"{min(MAX_TRAVEL, reach):.4f}"  # the window is this much narrower than the picture
         frac = f"(1-{p})" if motion == "pan-left" else p
-        left, top = f"W*(1-1/{PAN_ZOOM})*{frac}", f"H*(1-1/{PAN_ZOOM})/2"
-        cw, ch = f"W/{PAN_ZOOM}", f"H/{PAN_ZOOM}"
+        left, top = f"W*{travel}*{frac}", f"H*{travel}/2"
+        cw, ch = f"W*(1-{travel})", f"H*(1-{travel})"
     else:
         raise ValueError(f"unknown motion {motion!r}")
     right, bottom = f"{left}+{cw}", f"{top}+{ch}"
@@ -232,7 +241,7 @@ def build_graph(
         elif src.type == "image":
             path = _source_path(src, sc, root)
             png = prepare_image(path, size, workdir / f"bg_{i:02d}_{sc.id}.png")
-            steps = [] if sc.motion == "none" else [_motion_filter(sc.motion, n)]
+            steps = [] if sc.motion == "none" else [_motion_filter(sc.motion, n, fps, bg.motion_strength)]
             files.append(png)
             k = add_input(["-loop", "1", "-framerate", str(fps), "-t", secs, "-i", str(png)])
             head = f"[{k}:v]"
@@ -242,7 +251,7 @@ def build_graph(
             head = f"[{k}:v]"
             steps = [f"fps={fps}", _cover(size)]
             if sc.motion != "none":
-                steps.append(_motion_filter(sc.motion, n))
+                steps.append(_motion_filter(sc.motion, n, fps, bg.motion_strength))
             steps.append(f"tpad=stop_mode=clone:stop_duration={secs}")
         elif src.type == "generated":
             from karaoke.render.generated import render_clip

@@ -211,20 +211,70 @@ def bg_check(
     raise typer.Exit(1 if errors else 0)
 
 
+def _picture_keys() -> dict[str, str | None]:
+    from karaoke.config import get_settings
+
+    s = get_settings()
+    return {"unsplash": s.unsplash_access_key, "pexels": s.pexels_api_key}
+
+
+@app.command("bg-search")
+def bg_search(
+    job_id: str,
+    query: str,
+    source: Annotated[list[str] | None, typer.Option(help="wikimedia, unsplash or pexels; repeatable. "
+                                                          "Default: every source that is switched on.")] = None,
+    n: Annotated[int, typer.Option(help="Candidates per source.")] = 8,
+    name: Annotated[str | None, typer.Option(help="Name of this search (default: from the query).")] = None,
+    any_shape: Annotated[bool, typer.Option(help="Also portrait and square pictures.")] = False,
+) -> None:
+    """Search free pictures for a background. Prints the candidates (JSON), each with a `pick`
+    for bg-image, and draws their thumbnails into one numbered picture to look at."""
+    from karaoke import bg_search as bs
+
+    p = _store().paths(job_id)
+    try:
+        cands, notes = bs.search(query, _picture_keys(), source, n, landscape=not any_shape)
+    except bs.SearchError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    name = bs.slug(name or query)
+    sheet = p.bg_search_dir / f"{name}.jpg"
+    looks = []
+    if cands:  # a search that found nothing leaves the last one of that name alone
+        bs.save_search(p, name, query, cands)
+        looks = bs.candidate_sheet(cands, sheet)
+    print(json.dumps({
+        "query": query, "notes": notes, "sheet": str(sheet) if cands else None,
+        "candidates": [{"pick": f"{name}:{k + 1}", "source": c.provider, "title": c.title,
+                        "size": [c.width, c.height], "license": c.license, "credit": c.credit, "page": c.page,
+                        **look} for k, (c, look) in enumerate(zip(cands, looks, strict=True))],
+    }, indent=2, ensure_ascii=False))
+
+
 @app.command("bg-image")
 def bg_image(
     job_id: str,
-    url: str,
-    credit: Annotated[str, typer.Option(help="Author and title, as the source states them.")],
-    license_: Annotated[str, typer.Option("--license", help="E.g. 'CC BY-SA 4.0', 'Public domain'.")],
-    page: Annotated[str | None, typer.Option(help="The page describing the picture.")] = None,
+    url: Annotated[str | None, typer.Argument(help="An https:// picture; or use --pick.")] = None,
+    pick: Annotated[str | None, typer.Option(help="A candidate from bg-search, e.g. 'night-city:3': "
+                                                  "its credit and licence are recorded for you.")] = None,
+    credit: Annotated[str | None, typer.Option(help="With a URL: author and title, as the source states them.")] = None,
+    license_: Annotated[str | None, typer.Option("--license", help="With a URL: e.g. 'CC BY-SA 4.0'.")] = None,
+    page: Annotated[str | None, typer.Option(help="With a URL: the page describing the picture.")] = None,
 ) -> None:
     """Download a picture into the job's assets/bg and record its credit. Prints the path to use
-    in background.json."""
+    in background.json (with --pick: the scene's whole `source` object)."""
+    from karaoke import bg_search as bs
     from karaoke.bg_tools import add_image
 
     p = _store().paths(job_id)
     try:
+        if pick:
+            _, source = bs.add_candidate(p, bs.load_pick(p, pick), _picture_keys())
+            print(json.dumps(source, indent=2, ensure_ascii=False))
+            return
+        if not (url and credit and license_):
+            raise ValueError("give --pick <search>:<number>, or a URL with --credit and --license")
         dest = add_image(p, url, credit, license_, page)
     except Exception as exc:  # noqa: BLE001 — shown to the caller
         console.print(f"[red]{exc}[/]")

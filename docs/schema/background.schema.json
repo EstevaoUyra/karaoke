@@ -214,6 +214,16 @@
       "title": "Style",
       "type": "string"
     },
+    "motion_strength": {
+      "default": "normal",
+      "enum": [
+        "subtle",
+        "normal",
+        "strong"
+      ],
+      "title": "Motion Strength",
+      "type": "string"
+    },
     "scenes": {
       "items": {
         "$ref": "#/$defs/Scene"

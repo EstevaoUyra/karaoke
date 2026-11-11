@@ -83,6 +83,45 @@ def remove_image(p: JobPaths, name: str) -> None:
             p.bg_credits.write_text(json.dumps(credits, indent=2, ensure_ascii=False) + "\n")
 
 
+def line_gaps(lines, duration: float) -> list[list[float]]:
+    """Silences of 1 s or more before, between and after the sung lines: safe places for a scene change."""
+    gaps = []
+    prev = 0.0
+    for ln in lines:
+        if ln.start - prev >= 1.0:
+            gaps.append([round(prev, 2), round(ln.start, 2)])
+        prev = max(prev, ln.end)
+    if lines and duration - prev >= 1.0:
+        gaps.append([round(prev, 2), round(duration, 2)])  # after the last sung line
+    return gaps
+
+
+def _picture_sources() -> dict[str, bool]:
+    from karaoke.bg_search import enabled
+    from karaoke.config import get_settings
+
+    s = get_settings()
+    return enabled({"unsplash": s.unsplash_access_key, "pexels": s.pexels_api_key})
+
+
+def _recording(p: JobPaths, meta: Meta) -> dict:
+    """What the source says this recording is: who posted it, under which title, and the start
+    of its description and tags. It tells an original from a cover, a live take or a soundtrack."""
+    info = {}
+    if p.source_info.exists():
+        try:
+            info = json.loads(p.source_info.read_text())
+        except (OSError, ValueError):
+            info = {}
+    description = " ".join((info.get("description") or "").split())
+    return {
+        "source_title": meta.title, "posted_by": meta.uploader, "album": meta.album or info.get("album"),
+        "qualifiers": meta.clean_extra,  # words in the title beside artist and song, e.g. a film's name
+        "tags": [str(t) for t in (info.get("tags") or [])[:15]],
+        "description": description[:500],
+    }
+
+
 def brief(p: JobPaths, ffmpeg_bin: str | None = None) -> dict:
     """What an art director needs to know about the job, as plain data. With ``ffmpeg_bin`` the
     source video is sampled to see whether it is a moving picture at all."""
@@ -103,14 +142,7 @@ def brief(p: JobPaths, ffmpeg_bin: str | None = None) -> dict:
          "lines": text(s.start, s.end)}
         for s in (structure.sections if structure else [])
     ]
-    gaps = []
-    prev = 0.0
-    for ln in lines:
-        if ln.start - prev >= 1.0:
-            gaps.append([round(prev, 2), round(ln.start, 2)])
-        prev = max(prev, ln.end)
-    if lines and meta.duration - prev >= 1.0:
-        gaps.append([round(prev, 2), round(meta.duration, 2)])  # after the last sung line
+    gaps = line_gaps(lines, meta.duration)
     cover = p.bg_assets_dir / COVER_NAME
     palette = []
     if cover.exists():
@@ -125,6 +157,7 @@ def brief(p: JobPaths, ffmpeg_bin: str | None = None) -> dict:
         "job": p.id,
         "title": meta.clean_title or meta.title,
         "artist": meta.clean_artist or meta.artist or meta.uploader,
+        "recording": _recording(p, meta),
         "duration": meta.duration,
         "language": lyrics.language if lyrics else None,
         "tempo_bpm": structure.tempo_bpm if structure else None,
@@ -143,6 +176,8 @@ def brief(p: JobPaths, ffmpeg_bin: str | None = None) -> dict:
             # `stills` add nothing over `cover`. None: unknown (no video, or it could not be read).
             "source_video_is_still": video_is_still(p, meta.duration, ffmpeg_bin) if ffmpeg_bin else None,
             "images": images,
+            # where `bg-search` can look: Commons always, Unsplash and Pexels when their key is in .env
+            "picture_sources": _picture_sources(),
         },
         "current": None if bg is None else {
             "style": bg.style,
@@ -177,7 +212,8 @@ def scene_frame(bg: Background, scene: Scene, p: JobPaths, t: float, size: tuple
         return im
     span = 4.0
     cut = scene.transition.model_copy(update={"type": "cut", "duration": 0.0})
-    one = Background(fps=10, scenes=[scene.model_copy(update={"start": 0.0, "end": span, "transition": cut})])
+    one = Background(fps=10, motion_strength=bg.motion_strength,
+                     scenes=[scene.model_copy(update={"start": 0.0, "end": span, "transition": cut})])
     with tempfile.TemporaryDirectory(prefix="karaoke-frame-") as tmp:
         work = Path(tmp)
         g = build_graph(one, p.root, work, size=size, duration=span, ffmpeg_bin=ffmpeg_bin)
@@ -289,6 +325,7 @@ def check(p: JobPaths, ffmpeg_bin: str | None = None, before: Background | None 
     lyrics = read_model_opt(p.lyrics_final, LyricsFinal)
     lines = lyrics.lines if lyrics else []
     anchors = [s.start for s in structure.sections[1:]] if structure else []
+    gaps = line_gaps(lines, meta.duration)
     for sc in bg.scenes:
         where = f"scene {sc.id}"
         if sc.end - sc.start < MIN_SCENE_S and len(bg.scenes) > 1:
@@ -299,10 +336,11 @@ def check(p: JobPaths, ffmpeg_bin: str | None = None, before: Background | None 
             if cut is not None:
                 out.append(Finding("warning", where, f"starts at {sc.start:.2f} s, in the middle of a sung line "
                                                      f"({cut.start:.2f}-{cut.end:.2f} s)"))
-            elif anchors and min(abs(sc.start - a) for a in anchors) > SNAP_S and sc.source.type != "generated":
+            elif (anchors and min(abs(sc.start - a) for a in anchors) > SNAP_S and sc.source.type != "generated"
+                  and not any(a <= sc.start <= b for a, b in gaps)):
                 near = min(anchors, key=lambda a: abs(sc.start - a))
-                out.append(Finding("warning", where, f"starts at {sc.start:.2f} s, not at a section boundary "
-                                                     f"(nearest: {near:.2f} s)"))
+                out.append(Finding("warning", where, f"starts at {sc.start:.2f} s, neither at a section boundary "
+                                                     f"(nearest: {near:.2f} s) nor in a gap between lines"))
         if sc.source.type in ("image", "video") and not (sc.source.credit or sc.source.origin):
             out.append(Finding("warning", where, "no credit or origin recorded for this picture"))
     if ffmpeg_bin:
@@ -333,18 +371,10 @@ def add_image(p: JobPaths, url: str, credit: str, license_: str, source_page: st
     if not url.lower().startswith("https://"):
         raise ValueError("only https:// pictures are fetched")
     if download is None:
-        import httpx
+        from karaoke import bg_search
 
         def download(u: str) -> bytes:
-            with httpx.stream("GET", u, timeout=30.0, follow_redirects=True,
-                              headers={"User-Agent": "karaoke-backgrounds/1.0"}) as r:
-                r.raise_for_status()
-                data = b""
-                for chunk in r.iter_bytes():
-                    data += chunk
-                    if len(data) > MAX_IMAGE_BYTES:
-                        raise ValueError("picture larger than 40 MB")
-                return data
+            return bg_search._download(u, MAX_IMAGE_BYTES)
 
     data = download(url)
     try:

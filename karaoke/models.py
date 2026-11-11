@@ -276,6 +276,8 @@ class Background(_Model):
     resolution: tuple[int, int] = (1920, 1080)
     fps: int = 30
     style: str = "default"
+    # how fast still pictures zoom and pan (scenes whose motion is not "none"); see render.compositor
+    motion_strength: Literal["subtle", "normal", "strong"] = "normal"
     scenes: list[Scene]
 
 

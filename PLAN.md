@@ -259,7 +259,7 @@ Either way, a skill only edits files in the job folder and calls the CLI, so all
   4. Write `background.json` and render a contact sheet and preview for self-check.
 - **Helper scripts:**
   - `audio_sections.py`: energy curve and section boundaries.
-  - `img_search.py`: Wikimedia Commons, free with licence info, plus Claude's own web search. **No keys exist yet.** Pexels/Unsplash adapters are built but switch on only when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` appear in `.env`.
+  - `img_search.py` (built as `karaoke/bg_search.py`, CLI `bg-search`): Wikimedia Commons, free with licence info. The Pexels and Unsplash adapters switch on only when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` appear in `.env`.
   - `img_fetch.py`: download, validate resolution, crop to 16:9 and record credits.
   - `bg_timeline.py`: set/validate scenes and snap to section boundaries.
   - `contact_sheet.py`: a grid of the chosen images with timestamps, so Claude can *look* at its choices.

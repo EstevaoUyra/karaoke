@@ -201,6 +201,51 @@ def test_background_upload_and_save(client, demo):
     assert client.put("/api/jobs/demo/background", json=bg).status_code == 422
 
 
+def test_find_a_picture_and_put_it_in_a_scene(client, demo, monkeypatch):
+    from karaoke import bg_search as bs
+
+    found = {"query": {"pages": {"1": {
+        "pageid": 1, "title": "File:Sea at dusk.jpg", "index": 1,
+        "imageinfo": [{"width": 4000, "height": 2600, "mime": "image/jpeg",
+                       "thumburl": "https://thumb.example.invalid/a/Sea.jpg/1920px-Sea.jpg?utm=x",
+                       "descriptionurl": "https://commons.example.invalid/wiki/File:Sea.jpg",
+                       "extmetadata": {"LicenseShortName": {"value": "CC BY 4.0"}, "Artist": {"value": "Ana Lima"},
+                                       "ObjectName": {"value": "Sea at dusk"}}}]}}}}
+    monkeypatch.setattr(bs, "_get_json", lambda url, params, headers: found)
+    monkeypatch.setattr(bs, "_download", lambda url, limit: _png())
+
+    assert client.get("/api/jobs/demo/background/presets").json()["picture_sources"]["wikimedia"] is True
+    r = client.get("/api/jobs/demo/background/pictures", params={"q": "sea at dusk"})
+    assert r.status_code == 200, r.text
+    (cand,) = r.json()["candidates"]
+    assert cand["pick"] == "sea-at-dusk:1" and cand["thumb"].endswith("/500px-Sea.jpg") and cand["license"] == "CC BY 4.0"
+    assert client.get("/api/jobs/demo/background/pictures", params={"q": "sea", "source": "pexels"}).status_code == 422
+
+    r = client.post("/api/jobs/demo/background/scenes/s1/picture", json={"pick": cand["pick"]})
+    assert r.status_code == 200, r.text
+    scene = r.json()["background"]["scenes"][0]
+    assert scene["source"]["origin"] == "wikimedia" and scene["source"]["credit"] == "Ana Lima, Sea at dusk"
+    assert scene["locked"] and scene["motion"] == "kenburns-in" and scene["dim"] >= 0.45 and scene["blur"] >= 8
+    assert (demo.root / scene["source"]["path"]).exists()
+    assert client.post("/api/jobs/demo/background/scenes/s1/picture", json={"pick": "nothing:1"}).status_code == 404
+
+    def refuse(url, limit):
+        raise RuntimeError("403 Forbidden")
+
+    monkeypatch.setattr(bs, "_download", refuse)
+    r = client.post("/api/jobs/demo/background/scenes/s1/picture", json={"pick": cand["pick"]})
+    assert r.status_code == 502 and "could not fetch" in r.text
+
+
+def test_motion_strength_is_saved_with_the_background(client):
+    bg = client.get("/api/jobs/demo/background").json()
+    assert bg["motion_strength"] == "normal"
+    bg["motion_strength"] = "subtle"
+    assert client.put("/api/jobs/demo/background", json=bg).json()["background"]["motion_strength"] == "subtle"
+    bg["motion_strength"] = "wild"
+    assert client.put("/api/jobs/demo/background", json=bg).status_code == 422
+
+
 # --------------------------------------------------------------------------- settings and queue
 
 
