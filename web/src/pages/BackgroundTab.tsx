@@ -3,6 +3,8 @@ import { ApiError, api, fileUrl } from "../api";
 import { useServerEvent } from "../events";
 import { navigate, jobHref } from "../router";
 import { fmtTime, parseTime } from "../lib/time";
+import { PictureFinder } from "../components/PictureFinder";
+import { reach, type Strength } from "../lib/scene";
 import type { BackgroundDoc, Issue, JobDetail, SceneDoc } from "../types";
 import type { Structure } from "../types/generated/structure";
 
@@ -11,7 +13,20 @@ const MOTION_LABEL: Record<SceneDoc["motion"], string> = {
   none: "Still", "kenburns-in": "Slow zoom in", "kenburns-out": "Slow zoom out", "pan-left": "Pan left", "pan-right": "Pan right",
 };
 
-function preview(id: string, s: SceneDoc): CSSProperties {
+const STRENGTHS: Strength[] = ["subtle", "normal", "strong"];
+const STRENGTH_LABEL: Record<Strength, string> = { subtle: "Subtle", normal: "Normal", strong: "Strong" };
+
+/** How a picture scene will move in the video, as a CSS animation of its preview. */
+function movement(s: SceneDoc, strength: Strength): CSSProperties {
+  if (s.motion === "none") return {};
+  const st: Record<string, string | number> = {
+    "--reach": reach(s, strength),
+    animation: `${s.motion} ${Math.max(1, s.end - s.start)}s linear infinite alternate`,
+  };
+  return st as CSSProperties;
+}
+
+function preview(s: SceneDoc): CSSProperties {
   const src = s.source;
   const st: Record<string, string | number> = { "--dim": s.dim };
   if (src.type === "color") st.background = src.value ?? "#000";
@@ -22,8 +37,7 @@ function preview(id: string, s: SceneDoc): CSSProperties {
     const cols = (src.value ?? "").split(":")[1]?.split(",").filter(Boolean) ?? [];
     st.background = `linear-gradient(120deg, ${(cols.length > 1 ? cols : ["#3a1c71", "#d76d77", "#1f6f8b"]).join(", ")})`;
     st.filter = "brightness(0.55)";
-  } else if (src.type === "image" && src.path) st.backgroundImage = `url("${fileUrl(id, src.path)}")`;
-  else st.background = "#222";
+  } else if (src.type !== "image" || !src.path) st.background = "#222";
   return st as CSSProperties;
 }
 
@@ -99,6 +113,7 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
   const [presets, setPresets] = useState<Awaited<ReturnType<typeof api.backgroundPresets>> | null>(null);
   const [busy, setBusy] = useState("");
   const [structure, setStructure] = useState<Structure | null>(null);
+  const [finding, setFinding] = useState<string | null>(null); // the scene whose picture search is open
 
   const load = () =>
     api.background(id).then((b) => {
@@ -157,6 +172,17 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
     }
   }
 
+  async function usePicture(sceneId: string, pick: string) {
+    setMsg(null);
+    if (dirty) await save();
+    const r = await api.useScenePicture(id, sceneId, pick);
+    setBg(r.background);
+    setSavedJson(JSON.stringify(r.background));
+    setIssues(r.issues);
+    setFinding(null);
+    setMsg({ kind: "ok", text: "Picture saved with its credit, and the scene locked so the AI art direction keeps it." });
+  }
+
   async function applyPreset(name: string) {
     if (dirty && !window.confirm("Replace the unsaved changes with this preset?")) return;
     const locked = bg!.scenes.some((s) => s.locked);
@@ -210,13 +236,31 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
         </ul>
       )}
       <SongMap structure={structure} bg={bg} />
+      <div className="panel row" style={{ padding: "0.75rem 0.9rem", gap: "1rem" }}>
+        <label className="field">
+          Picture movement
+          <select value={bg.motion_strength} onChange={(e) => setBg({ ...bg, motion_strength: e.target.value as Strength })}>
+            {STRENGTHS.map((m) => <option key={m} value={m}>{STRENGTH_LABEL[m]}</option>)}
+          </select>
+        </label>
+        <span className="faint" style={{ flex: 1, minWidth: 220 }}>
+          How fast pictures zoom and pan, in every scene whose motion is not Still. Normal is a 12% zoom
+          over 15 seconds. The small previews below move the way the video will.
+        </span>
+      </div>
       <div className="scenes">
         {bg.scenes.map((s, k) => (
           <div key={s.id} className="panel scene">
             <div style={{ display: "grid", gap: "0.5rem", alignContent: "start" }}>
-              <div className="scene-preview" style={preview(id, s)} />
+              <div className="scene-preview" style={preview(s)}>
+                {s.source.type === "image" && s.source.path && (
+                  <div className="scene-picture" key={`${s.motion}${bg.motion_strength}`}
+                    style={{ backgroundImage: `url("${fileUrl(id, s.source.path)}")`, ...movement(s, bg.motion_strength) }} />
+                )}
+              </div>
+              <button onClick={() => setFinding(finding === s.id ? null : s.id)}>Find a picture</button>
               <label className="button" style={{ cursor: "pointer" }}>
-                Replace with an image
+                Upload an image
                 <input type="file" accept="image/jpeg,image/png,image/webp" hidden
                   onChange={(e) => e.target.files?.[0] && upload(k, e.target.files[0])} />
               </label>
@@ -299,20 +343,29 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
                   </select>
                 </label>
               </div>
-              {s.source.credit && <p className="faint">{s.source.credit}</p>}
+              {s.source.credit && (
+                <p className="faint">
+                  {s.source.url ? <a href={s.source.url} target="_blank" rel="noreferrer">{s.source.credit}</a> : s.source.credit}
+                  {s.source.license && ` (${s.source.license})`}
+                </p>
+              )}
               <div className="row">
                 <button className="small" onClick={() => setBg(splitScene(bg, k))}>Split in two</button>
                 <button className="small danger" disabled={bg.scenes.length < 2} onClick={() => setBg(removeScene(bg, k))}>Remove scene</button>
               </div>
             </div>
+            {finding === s.id && (
+              <PictureFinder jobId={id} sources={presets?.picture_sources ?? { wikimedia: true }}
+                onUse={(pick) => usePicture(s.id, pick)} onClose={() => setFinding(null)} />
+            )}
           </div>
         ))}
       </div>
       <div className="panel aibox">
         <h3>AI art direction</h3>
         <p className="muted" style={{ fontSize: "0.9rem" }}>
-          Coming in the next phase: Claude picks images for each section and writes the scenes, leaving locked
-          scenes as they are. It will run from this button or from a Claude Code session in this repo:
+          Claude reads the song, chooses moving colours or pictures for each section and writes the scenes,
+          leaving locked scenes as they are. For now it runs from a Claude Code session in this repo:
         </p>
         <div className="cmd">
           <code>{cmd}</code>
@@ -320,7 +373,7 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <div><button disabled title="Phase 3">Ask AI to art-direct</button></div>
+        <div><button disabled title="Not available from here yet">Ask AI to art-direct</button></div>
       </div>
     </div>
   );

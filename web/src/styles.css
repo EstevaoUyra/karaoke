@@ -200,6 +200,23 @@ main { padding: 1.5rem 1.25rem 4rem; max-width: 1280px; margin: 0 auto; }
   display: grid; place-items: center; color: #fff; user-select: none;
 }
 .stagebox::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, var(--dim, 0)); }
+/* the scene behind the stage: softened and darkened as in the video (blur is given at 1080p) */
+.stagebox { container-type: size; }
+.stage-bg {
+  position: absolute; inset: 0; background-size: cover; background-position: center;
+  filter: blur(calc(var(--blur, 0) * 100cqh / 1080)) brightness(var(--bright, 1));
+}
+/* the Video tab's stage: the video's proportions, lyrics low, the font at its video size */
+.stagebox.video { aspect-ratio: 16 / 9; background: #000; }
+.stagebox.video .stage-lines {
+  position: absolute; left: 0; right: 0; top: 66%; font-size: calc(var(--fs, 64) * 100cqh / 1080); padding: 0 4%;
+}
+.stagebox.video .countdown { top: 52%; }
+.stagebox.video .stage-idle { position: absolute; top: 66%; }
+.stage-pitch {
+  position: absolute; z-index: 1; left: 4%; top: 3%; width: 92%; height: 25%;
+  background: rgba(0, 0, 0, 0.37); border-radius: 0.5rem;
+}
 .stage-lines {
   position: relative; z-index: 1; display: grid; gap: 0.35em; justify-items: center; text-align: center;
   padding: 0 1.5rem; font-weight: 800; font-size: clamp(1.3rem, 3vw, 2.25rem); line-height: 1.2;
@@ -288,7 +305,8 @@ main { padding: 1.5rem 1.25rem 4rem; max-width: 1280px; margin: 0 auto; }
 /* ------------------------------------------------------------------ render & background */
 
 .two { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-.form { display: grid; gap: 0.9rem; padding: 1.1rem; }
+.form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.9rem; padding: 1.1rem; }
+.form select, .form input:not([type=checkbox]):not([type=color]) { max-width: 100%; min-width: 0; }
 .form .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .preset {
@@ -310,6 +328,25 @@ video { width: 100%; border-radius: var(--r-stage); background: #000; display: b
   overflow: hidden;
 }
 .scene-preview::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, var(--dim, 0)); }
+/* a picture scene's preview moves as the video will: --reach is the zoom gained, or the share of the width panned */
+.scene-picture { position: absolute; inset: 0; background-size: cover; background-position: center; }
+@keyframes kenburns-in { from { transform: scale(1); } to { transform: scale(calc(1 + var(--reach))); } }
+@keyframes kenburns-out { from { transform: scale(calc(1 + var(--reach))); } to { transform: scale(1); } }
+@keyframes pan-left {
+  from { transform: scale(calc(1 / (1 - var(--reach)))) translateX(calc(var(--reach) * -50%)); }
+  to { transform: scale(calc(1 / (1 - var(--reach)))) translateX(calc(var(--reach) * 50%)); }
+}
+@keyframes pan-right {
+  from { transform: scale(calc(1 / (1 - var(--reach)))) translateX(calc(var(--reach) * 50%)); }
+  to { transform: scale(calc(1 / (1 - var(--reach)))) translateX(calc(var(--reach) * -50%)); }
+}
+@media (prefers-reduced-motion: reduce) { .scene-picture { animation: none !important; } }
+.finder { grid-column: 1 / -1; display: grid; gap: 0.6rem; border-top: 1px solid var(--rule); padding-top: 0.9rem; }
+.finder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.75rem; }
+.finder-grid figure { margin: 0; display: grid; gap: 0.35rem; align-content: start; }
+.finder-grid img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--sunk); display: block; }
+.finder-grid figcaption { display: grid; gap: 0.25rem; justify-items: start; }
+.finder-title { font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .scene-fields { display: grid; gap: 0.6rem; align-content: start; }
 .scene-fields .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; }
 .aibox { padding: 1rem; display: grid; gap: 0.5rem; }

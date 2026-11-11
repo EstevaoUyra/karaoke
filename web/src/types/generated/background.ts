@@ -8,6 +8,7 @@ export type Version = 1;
 export type Resolution = [unknown, unknown];
 export type Fps = number;
 export type Style = string;
+export type MotionStrength = "subtle" | "normal" | "strong";
 export type Id = string;
 export type Start = number;
 export type End = number;
@@ -32,6 +33,7 @@ export interface Background {
   resolution?: Resolution;
   fps?: Fps;
   style?: Style;
+  motion_strength?: MotionStrength;
   scenes: Scenes;
 }
 export interface Scene {

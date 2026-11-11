@@ -15,6 +15,12 @@ export class ApiError extends Error {
   }
 }
 
+/** A picture a search found; `pick` names it when asking the server to put it in a scene. */
+export interface PictureCandidate {
+  pick: string; source: string; title: string; thumb: string; size: [number, number];
+  license: string; credit: string; page: string;
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, headers: {} };
   if (body instanceof FormData) init.body = body;
@@ -86,8 +92,16 @@ export const api = {
     req<{ background: BackgroundDoc; issues: Issue[] }>("PUT", `${j(id)}/background`, bg),
   structure: (id: string) => req<Structure>("GET", `${j(id)}/structure`),
   backgroundPresets: (id: string) =>
-    req<{ presets: { name: string; label: string; available: boolean }[]; has_structure: boolean }>(
-      "GET", `${j(id)}/background/presets`),
+    req<{
+      presets: { name: string; label: string; available: boolean }[]; has_structure: boolean;
+      picture_sources: Record<string, boolean>;
+    }>("GET", `${j(id)}/background/presets`),
+  searchPictures: (id: string, q: string, sources: string[]) =>
+    req<{ query: string; notes: string[]; candidates: PictureCandidate[] }>(
+      "GET", `${j(id)}/background/pictures?q=${encodeURIComponent(q)}${sources.map((s) => `&source=${encodeURIComponent(s)}`).join("")}`),
+  useScenePicture: (id: string, sceneId: string, pick: string) =>
+    req<{ background: BackgroundDoc; issues: Issue[] }>(
+      "POST", `${j(id)}/background/scenes/${encodeURIComponent(sceneId)}/picture`, { pick }),
   applyBackgroundPreset: (id: string, name: string, replaceLocked = false) =>
     req<{ background: BackgroundDoc; issues: Issue[] }>(
       "POST", `${j(id)}/background/preset`, { name, replace_locked: replaceLocked }),
