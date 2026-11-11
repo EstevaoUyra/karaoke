@@ -131,12 +131,16 @@ def background(
 
 
 @app.command("lyrics-brief")
-def lyrics_brief(job_id: str) -> None:
+def lyrics_brief(
+    job_id: str,
+    compact: Annotated[bool, typer.Option(help="Readable text: one row per line, its suspects under it.")] = False,
+) -> None:
     """Print the synced lyrics with the evidence around them (JSON): what Whisper heard under each
     line, flags, unmatched audio, the other lyric sources, and a list of suspects."""
-    from karaoke.lyrics_review import brief
+    from karaoke import lyrics_review
 
-    print(json.dumps(brief(_store().paths(job_id)), indent=2, ensure_ascii=False))
+    b = lyrics_review.brief(_store().paths(job_id))
+    print(lyrics_review.compact(b) if compact else json.dumps(b, indent=2, ensure_ascii=False))
 
 
 @app.command("lyrics-apply")
@@ -163,8 +167,9 @@ def bg_brief(job_id: str) -> None:
     """Print what an art director needs to know about the job (JSON): sections with their lines,
     materials, the cover's colours, the current scenes."""
     from karaoke.bg_tools import brief
+    from karaoke.config import get_settings
 
-    print(json.dumps(brief(_store().paths(job_id)), indent=2, ensure_ascii=False))
+    print(json.dumps(brief(_store().paths(job_id), get_settings().ffmpeg_bin), indent=2, ensure_ascii=False))
 
 
 @app.command("bg-sheet")
@@ -225,6 +230,22 @@ def bg_image(
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
     print(p.rel(dest))
+
+
+@app.command("bg-image-rm")
+def bg_image_rm(
+    job_id: str,
+    name: Annotated[str, typer.Argument(help="File name in assets/bg, e.g. img-1a2b3c.jpg.")],
+) -> None:
+    """Delete a downloaded picture you decided not to use, and its credit entry."""
+    from karaoke.bg_tools import remove_image
+
+    try:
+        remove_image(_store().paths(job_id), name)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    console.print(f"removed {name}")
 
 
 @app.command()

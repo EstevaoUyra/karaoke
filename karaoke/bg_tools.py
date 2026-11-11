@@ -43,8 +43,49 @@ class Finding:
 # --------------------------------------------------------------------------- brief
 
 
-def brief(p: JobPaths) -> dict:
-    """What an art director needs to know about the job, as plain data."""
+def video_is_still(p: JobPaths, duration: float, ffmpeg_bin: str) -> bool | None:
+    """Does the source video show the same picture a fifth, half and four fifths of the way in?"""
+    import tempfile
+
+    import numpy as np
+    from PIL import Image
+
+    from karaoke.bg_presets import PresetError, grab_frame, usable_video
+
+    if not p.source_video.exists():
+        return None
+    try:
+        video = usable_video(p, ffmpeg_bin)
+        with tempfile.TemporaryDirectory(prefix="karaoke-still-") as tmp:
+            shots = []
+            for k, share in enumerate((0.2, 0.5, 0.8)):
+                f = grab_frame(ffmpeg_bin, video, duration * share, Path(tmp) / f"f{k}.jpg")
+                with Image.open(f) as im:
+                    shots.append(np.asarray(im.convert("L").resize((64, 36)), dtype=float) / 255.0)
+    except (PresetError, OSError, RuntimeError, ValueError):
+        return None
+    return bool(max(np.abs(shots[0] - s).mean() for s in shots[1:]) < 0.02)
+
+
+def remove_image(p: JobPaths, name: str) -> None:
+    """Delete a downloaded picture from ``assets/bg`` and its entry in ``credits.json``. Refuses
+    if a scene of the current background still uses it."""
+    target = p.bg_assets_dir / Path(name).name
+    bg = read_model_opt(p.background, Background)
+    if bg and any(s.source.path == p.rel(target) for s in bg.scenes):
+        raise ValueError(f"{p.rel(target)} is used by a scene: change the scene first")
+    if not target.exists():
+        raise ValueError(f"no such picture: {p.rel(target)}")
+    target.unlink()
+    if p.bg_credits.exists():
+        credits = json.loads(p.bg_credits.read_text())
+        if credits.pop(target.name, None) is not None:
+            p.bg_credits.write_text(json.dumps(credits, indent=2, ensure_ascii=False) + "\n")
+
+
+def brief(p: JobPaths, ffmpeg_bin: str | None = None) -> dict:
+    """What an art director needs to know about the job, as plain data. With ``ffmpeg_bin`` the
+    source video is sampled to see whether it is a moving picture at all."""
     from karaoke.bg_presets import COVER_NAME, PRESETS, available, cover_palette
     from karaoke.render.generated import STYLES
 
@@ -68,6 +109,8 @@ def brief(p: JobPaths) -> dict:
         if ln.start - prev >= 1.0:
             gaps.append([round(prev, 2), round(ln.start, 2)])
         prev = max(prev, ln.end)
+    if lines and meta.duration - prev >= 1.0:
+        gaps.append([round(prev, 2), round(meta.duration, 2)])  # after the last sung line
     cover = p.bg_assets_dir / COVER_NAME
     palette = []
     if cover.exists():
@@ -87,7 +130,8 @@ def brief(p: JobPaths) -> dict:
         "tempo_bpm": structure.tempo_bpm if structure else None,
         "sections": sections,
         "has_structure": structure is not None,
-        "line_gaps": gaps,  # silences of 1 s or more between lines: safe places for a scene change
+        # silences of 1 s or more before, between and after the sung lines: safe places for a scene change
+        "line_gaps": gaps,
         "materials": {
             "presets": {name: {"what": what, "available": ok}
                         for (name, what), ok in zip(PRESETS.items(), available(p, meta).values(), strict=True)},
@@ -95,6 +139,9 @@ def brief(p: JobPaths) -> dict:
             "cover": p.rel(cover) if cover.exists() else None,
             "cover_palette": palette,
             "source_video": p.rel(p.source_video) if p.source_video.exists() else None,
+            # True: the video is one still picture (a cover) for the whole song, so `video` and
+            # `stills` add nothing over `cover`. None: unknown (no video, or it could not be read).
+            "source_video_is_still": video_is_still(p, meta.duration, ffmpeg_bin) if ffmpeg_bin else None,
             "images": images,
         },
         "current": None if bg is None else {

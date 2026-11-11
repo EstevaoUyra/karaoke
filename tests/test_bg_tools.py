@@ -108,3 +108,44 @@ def test_contact_sheet_and_legibility_check_on_real_frames(job, tmp_path):
         assert im.size == (2 * bg_tools.SHEET_CELL[0], bg_tools.SHEET_CELL[1])
     found = bg_tools.check(job, ffmpeg)
     assert [f.where for f in found if "too bright" in f.message] == ["scene s2"]
+
+
+def test_a_rejected_picture_can_be_removed_unless_a_scene_uses_it(job):
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 36), (10, 80, 160)).save(buf, "PNG")
+    dest = bg_tools.add_image(job, "https://example.invalid/sky.png", "A. Person, Sky", "CC BY 4.0",
+                              download=lambda url: buf.getvalue())
+    write_model(job.background, Background(scenes=[scene(1, 0, 24, BgSource(type="image", path=job.rel(dest)))]))
+    with pytest.raises(ValueError, match="used by a scene"):
+        bg_tools.remove_image(job, dest.name)
+    write_model(job.background, Background(scenes=[scene(1, 0, 24, GEN)]))
+    bg_tools.remove_image(job, dest.name)
+    assert not dest.exists() and dest.name not in json.loads(job.bg_credits.read_text())
+
+
+def test_brief_lists_the_silence_after_the_last_line(job):
+    b = bg_tools.brief(job)
+    assert b["line_gaps"][-1][1] == 24.0 and b["line_gaps"][0][0] == 0.0
+    assert b["materials"]["source_video_is_still"] is None  # no ffmpeg given, no video
+
+
+def test_darkening_keeps_the_colours(job, tmp_path):
+    import numpy as np
+
+    from karaoke.config import get_settings
+    from karaoke.render.ffmpeg import has_libass
+
+    ffmpeg = get_settings().ffmpeg_bin
+    if not has_libass(ffmpeg):
+        pytest.skip("no ffmpeg with libass")
+    job.bg_assets_dir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (320, 180), (200, 60, 40)).save(job.bg_assets_dir / "red.png")
+
+    def hsv(dim):
+        sc = scene(1, 0, 24, BgSource(type="image", path="assets/bg/red.png"), dim=dim)
+        im = bg_tools.scene_frame(Background(scenes=[sc]), sc, job, 5.0, (320, 180), ffmpeg)
+        return np.asarray(im.convert("HSV"), dtype=float).reshape(-1, 3).mean(axis=0) / 255
+
+    plain, dark = hsv(0.0), hsv(0.5)
+    assert dark[2] == pytest.approx(plain[2] * 0.5, abs=0.03)  # half as bright ...
+    assert dark[1] == pytest.approx(plain[1], abs=0.05)  # ... and just as red

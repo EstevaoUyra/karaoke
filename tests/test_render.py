@@ -99,7 +99,7 @@ def test_graph_video_dim_blur(tmp_path):
     assert g.inputs[0][:2] == ["-stream_loop", "-1"]
     assert "scale=1280:720:force_original_aspect_ratio=increase" in g.filter and "crop=1280:720" in g.filter
     assert "gblur=sigma=4.00" in g.filter  # 6 px at 1080p → 4 px at 720p
-    assert "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.450:t=fill" in g.filter
+    assert "colorchannelmixer=rr=0.550:gg=0.550:bb=0.550" in g.filter
 
 
 def test_graph_missing_image_is_a_clear_error(tmp_path):

@@ -4,7 +4,9 @@
   line accounts for, and a list of suspects: the places worth a look.
 - ``apply_edits``: a list of small, explicit edits applied safely: words the user edited by hand
   are never touched, changed words become ``origin: ai`` (so ``align`` keeps them), and nothing is
-  saved unless the result passes ``validate_lyrics``.
+  saved unless the result passes ``validate_lyrics``. An edit marked ``"estimate": true`` (a time
+  placed where nothing was heard) keeps a low confidence and the ``ai_estimate`` flag, so it stays
+  a suspect for a person to check.
 - ``compare``: how close a ``lyrics.final.json`` is to a known truth (for the seeded-error job).
 
 The lyrics text is the source of truth for the WORDS and Whisper for the TIMING. Whisper mishears
@@ -21,6 +23,8 @@ from karaoke.models import Line, LyricsFinal, Meta, Transcript, UnmatchedAudio, 
 from karaoke.store import JobPaths, read_model, read_model_opt, write_model
 
 AI_FLAG = "ai_edited"
+ESTIMATE_FLAG = "ai_estimate"  # an edit placed without direct evidence: stays on the suspects list
+ESTIMATE_CONF = 0.4
 LOW_CONF = 0.5
 START_OFF_S = 0.4  # a line starting this far from the first word Whisper heard in it is a suspect
 _PUNCT = re.compile(r"[^\w\s']", re.UNICODE)
@@ -73,6 +77,9 @@ def brief(p: JobPaths) -> dict:
 
         if any(w.origin == WordOrigin.manual for w in ln.words):
             continue  # the user's own work: not a suspect
+        if ESTIMATE_FLAG in ln.flags:
+            suspect("estimate", "a reviewer placed words here without hearing them: check by ear")
+            continue
         if all(w.origin == WordOrigin.ai for w in ln.words):
             continue  # already reviewed word by word
         if not heard:
@@ -82,13 +89,20 @@ def brief(p: JobPaths) -> dict:
         low = [w.text for w in ln.words if w.conf < LOW_CONF or w.origin == WordOrigin.interpolated]
         if low and heard:
             suspect("unsure_words", "low confidence or interpolated timing: " + ", ".join(low))
+        extra = len(heard) - len(ln.words)
+        if extra >= 3 and extra >= 0.5 * len(ln.words) and agree >= 0.6:
+            suspect("extra_heard", f"Whisper heard {extra} more words than the line has, between "
+                                   f"{heard[0]['start']:.2f} and {heard[-1]['end']:.2f} s: a repeat or an answer "
+                                   "that is not in the lyrics, or this line sits on the wrong repeat")
         if heard and abs(heard[0]["start"] - ln.start) > START_OFF_S:
             suspect("start_off", f"line starts at {ln.start:.2f} s but the first word heard near it is at "
                                  f"{heard[0]['start']:.2f} s")
         if ln.start < prev_end - 0.05:
             suspect("overlap", f"starts before the previous line ends ({prev_end:.2f} s)")
+        mine = {s["kind"] for s in suspects if s["line"] == ln.id}
         for f in ln.flags:
-            if f != AI_FLAG:
+            # the aligner's low_confidence repeats what unsure_words / not_heard / text_differs say
+            if f not in (AI_FLAG, ESTIMATE_FLAG) and not (f == "low_confidence" and mine):
                 suspect(f, "flag set by the aligner")
         prev_end = max(prev_end, ln.end)
     for k, u in enumerate(lf.unmatched_audio):
@@ -100,8 +114,12 @@ def brief(p: JobPaths) -> dict:
     for f in sorted(p.lyrics_sources_dir.glob("*")) if p.lyrics_sources_dir.exists() else []:
         if f.suffix in (".txt", ".lrc", ".vtt") and f.stat().st_size < 200_000:
             sources[f.name] = f.read_text(encoding="utf-8", errors="replace")
+    from karaoke.validate import validate_lyrics
+
+    problems = [str(i) for i in validate_lyrics(lf, meta.duration if meta else None)]
     return {
         "job": p.id,
+        "validation": problems,  # contract problems in the file as it is: fix these first
         "title": (meta.clean_title or meta.title) if meta else None,
         "artist": (meta.clean_artist or meta.artist) if meta else None,
         "duration": meta.duration if meta else None,
@@ -112,6 +130,33 @@ def brief(p: JobPaths) -> dict:
         "suspects": sorted(suspects, key=lambda s: s["at"]),
         "other_sources": sources,
     }
+
+
+def compact(b: dict) -> str:
+    """The brief as text a person can read down: one row per line, its suspects under it."""
+    by_line: dict[str | None, list[dict]] = {}
+    for s in b["suspects"]:
+        by_line.setdefault(s["line"], []).append(s)
+    out = [f"{b['title']} / {b['artist']}  ({b['duration']:.1f} s, text from {b['text_source']})"]
+    out += [f"VALIDATION: {v}" for v in b["validation"]]
+    out.append(f"{len(b['lines'])} lines, {len(b['suspects'])} suspects on "
+               f"{sum(1 for k in by_line if k)} lines, {len(b['unmatched_audio'])} unmatched audio")
+    loose = sorted(by_line.get(None, []), key=lambda s: s["at"])
+    for ln in b["lines"]:
+        while loose and loose[0]["at"] < ln["start"]:
+            out.append(f"  ~ {loose.pop(0)['note']}")
+        mark = "!" if ln["id"] in by_line else " "
+        low = [f"{w['i']}:{w['text']}({w['origin'][:5]} {w['conf']})" for w in ln["words"]
+               if w["conf"] < LOW_CONF or w["origin"] in ("interpolated", "ai", "manual")]
+        out.append(f"{mark} {ln['id']} {ln['start']:7.2f}-{ln['end']:7.2f} agree {ln['agreement']:.2f}  {ln['text']}")
+        if ln["id"] in by_line:
+            heard = " ".join(f"{h['text']}@{h['start']:.2f}" for h in ln["whisper_heard"])
+            out.append(f"      heard: {heard or '(nothing)'}")
+            if low:
+                out.append(f"      unsure words: {' '.join(low)}")
+            out += [f"      - {s['kind']}: {s['note']}" for s in by_line[ln["id"]]]
+    out += [f"  ~ {s['note']}" for s in loose]
+    return "\n".join(out)
 
 
 # --------------------------------------------------------------------------- edits
@@ -129,10 +174,12 @@ def _guard(words: list[Word], what: str) -> None:
         raise EditError(f"{what}: it has words the user edited by hand; leave those alone")
 
 
-def _mark(ln: Line, words: list[Word]) -> None:
+def _mark(ln: Line, words: list[Word], estimate: bool = False) -> None:
     for w in words:
         w.origin = WordOrigin.ai
-        w.conf = max(w.conf, 0.9)
+        w.conf = ESTIMATE_CONF if estimate else max(w.conf, 0.9)
+    if estimate and ESTIMATE_FLAG not in ln.flags:
+        ln.flags.append(ESTIMATE_FLAG)
     from karaoke.align.confidence import COMPUTED_FLAGS
 
     ln.flags = [f for f in ln.flags if f not in COMPUTED_FLAGS]  # the aligner's doubts were about the old words
@@ -161,19 +208,20 @@ def _new_id(lf: LyricsFinal) -> str:
 def apply_edit(lf: LyricsFinal, e: dict) -> str:
     """Apply one edit in place; returns a one-line description."""
     op = e.get("op")
+    est = bool(e.get("estimate"))
     if op == "replace_word":
         ln = _line(lf, e["line"])
         w = ln.words[int(e["word"])]
         _guard([w], f"replace_word {ln.id}[{e['word']}]")
         old, w.text = w.text, str(e["text"])
-        _mark(ln, [w])
+        _mark(ln, [w], est)
         return f"{ln.id}: “{old}” → “{w.text}”"
     if op == "retime_word":
         ln = _line(lf, e["line"])
         w = ln.words[int(e["word"])]
         _guard([w], f"retime_word {ln.id}[{e['word']}]")
         w.start, w.end = float(e["start"]), float(e["end"])
-        _mark(ln, [w])
+        _mark(ln, [w], est)
         return f"{ln.id}: “{w.text}” now {w.start:.2f}-{w.end:.2f} s"
     if op == "shift_line":
         ln = _line(lf, e["line"])
@@ -181,7 +229,7 @@ def apply_edit(lf: LyricsFinal, e: dict) -> str:
         by = float(e["by"])
         for w in ln.words:
             w.start, w.end = round(w.start + by, 3), round(w.end + by, 3)
-        _mark(ln, ln.words)
+        _mark(ln, ln.words, est)
         return f"{ln.id}: moved by {by:+.2f} s"
     if op == "retime_line":
         ln = _line(lf, e["line"])
@@ -192,17 +240,18 @@ def apply_edit(lf: LyricsFinal, e: dict) -> str:
         k = (b1 - a1) / max(b0 - a0, 1e-6)
         for w in ln.words:
             w.start, w.end = round(a1 + (w.start - a0) * k, 3), round(a1 + (w.end - a0) * k, 3)
-        _mark(ln, ln.words)
+        _mark(ln, ln.words, est)
         return f"{ln.id}: now {a1:.2f}-{b1:.2f} s"
     if op == "set_line":
         ln = _line(lf, e["line"])
         _guard(ln.words, f"set_line {ln.id}")
         ln.words = _words(e["words"])
-        _mark(ln, ln.words)
+        _mark(ln, ln.words, est)
         return f"{ln.id}: rewritten as “{' '.join(w.text for w in ln.words)}”"
     if op == "insert_line":
         words = _words(e["words"])
         ln = Line(id=_new_id(lf), start=words[0].start, end=words[-1].end, words=words, flags=[AI_FLAG])
+        _mark(ln, ln.words, est)
         lf.lines.append(ln)
         return f"{ln.id}: new line “{' '.join(w.text for w in words)}” at {ln.start:.2f} s"
     if op == "delete_line":

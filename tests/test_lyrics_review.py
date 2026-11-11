@@ -90,3 +90,39 @@ def test_hand_edited_words_and_invalid_results_are_refused(seeded):
     with pytest.raises(R.EditError, match="unknown op"):
         R.apply_edits(seeded, [{"op": "rewrite_everything"}])
     assert seeded.lyrics_final.read_bytes() == saved
+
+
+def test_estimates_stay_on_the_suspects_list(seeded):
+    edits = [dict(e) for e in FIX]
+    edits[3]["estimate"] = True  # l005: say its times were placed, not heard
+    R.apply_edits(seeded, edits)
+    lf = final(seeded)
+    l5 = next(ln for ln in lf.lines if ln.id == "l005")
+    assert R.ESTIMATE_FLAG in l5.flags and all(w.conf == R.ESTIMATE_CONF and w.origin == WordOrigin.ai for w in l5.words)
+    assert ("l005", "estimate") in {(s["line"], s["kind"]) for s in R.brief(seeded)["suspects"]}
+
+
+def test_brief_reports_contract_problems_and_reads_compactly(seeded):
+    lf = final(seeded)
+    lf.lines[-1].words[-1].end = 99.0  # past the end of the 24 s song
+    lf.lines[-1].end = 99.0
+    write_model(seeded.lyrics_final, lf)
+    b = R.brief(seeded)
+    assert any("outside audio duration" in v for v in b["validation"])
+    by_line = {}
+    for s in b["suspects"]:
+        by_line.setdefault(s["line"], []).append(s["kind"])
+    assert "low_confidence" not in by_line["l005"]  # said already by unsure_words
+    text = R.compact(b)
+    assert text.splitlines()[1].startswith("VALIDATION:")
+    assert "! l002" in text and "heard: coffee@" in text and "\n  l003" in text
+    assert len(text) < len(__import__("json").dumps(b)) / 2
+
+
+def test_more_words_heard_than_written_is_a_suspect(demo_no_audio):
+    lf = final(demo_no_audio)
+    l3, l4 = lf.lines[2], lf.lines[3]  # the two chorus lines, sung back to back
+    l3.words = l3.words[:3]  # the lyrics have only half of what is sung in l003's time
+    l3.end = l4.start - 0.05
+    write_model(demo_no_audio.lyrics_final, lf)
+    assert ("l003", "extra_heard") in {(s["line"], s["kind"]) for s in R.brief(demo_no_audio)["suspects"]}

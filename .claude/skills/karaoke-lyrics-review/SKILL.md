@@ -17,7 +17,7 @@ song's full lyrics into your report: quote only the few words you changed.
 | Question | Trust | Because |
 |---|---|---|
 | Which words? | The lyrics text (and the other sources) | Whisper mishears: "window" → "widow", "anymore" → "any more". A different word in Whisper is a question, not an answer. |
-| When? | Whisper's word times | They come from the audio. Synced-lyrics timestamps are often a second off. |
+| When? | Whisper's word times | They come from the audio. Synced-lyrics (`.lrc`) timestamps can be a second off, but they are usually off by the same amount from line to line: measure that offset on lines Whisper heard well, and the timestamps become good evidence for the lines it did not hear. |
 | Is a line sung at all? | Whisper hearing something there, and the song's shape | A line with nothing heard under it, in an instrumental gap, is usually not sung. |
 
 Songs are Brazilian Portuguese or English. Never trust a language tag: read the words.
@@ -25,16 +25,27 @@ Songs are Brazilian Portuguese or English. Never trust a language tag: read the 
 ## 1. Read the brief
 
 ```bash
+uv run karaoke validate <job>
+uv run karaoke lyrics-brief <job> --compact > <scratch>/brief.txt
 uv run karaoke lyrics-brief <job> > <scratch>/brief.json
 ```
+
+Read `brief.txt` first: one row per line (`!` marks a line with suspects), and under each suspect
+line what Whisper heard there with times, the unsure words, and why it is a suspect. Lines starting
+with `~` are audio no line accounts for. The JSON has the same content with every word's times,
+for when you write an edit. If `validate` reports errors (also listed as `validation` in the
+brief), those are the first things to fix.
+
+In the JSON:
 
 - `lines`: each line's id, times, text, flags, its `words` (index `i`, text, start, end, `conf`,
   `origin`) and `whisper_heard` (the words Whisper heard in that time, with their own times and
   probability), plus `agreement` between the two (0..1).
 - `unmatched_audio`: words Whisper heard that no line accounts for.
 - `suspects`: where to look, in time order. Kinds: `text_differs`, `unsure_words`, `not_heard`,
-  `start_off`, `overlap`, `unmatched_audio`, and the aligner's flags `low_confidence` /
-  `timing_suspect`.
+  `start_off`, `extra_heard`, `overlap`, `unmatched_audio`, `estimate`, and the aligner's flags
+  `low_confidence` / `timing_suspect`. A line often has several: judge the line once, with all of
+  them in view.
 - `other_sources`: the raw text of every lyric source that was found (LRCLIB, Genius, YouTube
   subtitles, the user's own). Compare them when a word is in doubt.
 
@@ -42,7 +53,10 @@ Words with `origin: manual` were fixed by the user. **Never change them**; the t
 
 ## 2. Judge each suspect
 
-Go through `suspects` one by one. For each, decide: fix, leave, or ask. Typical cases:
+Go through the suspect **lines** in order. For each, decide: fix, leave, or ask. `timing_suspect`
+is usually right. About half of `unsure_words` turn out to be words already in the right place
+(Whisper simply did not catch them): check their times against the neighbours before moving
+anything. Typical cases:
 
 - **`text_differs`.** Read both. If Whisper's version is a mishearing of the lyric (same sounds,
   the lyric makes sense, another source agrees), **leave it**. Change the word only when the lyric
@@ -61,11 +75,37 @@ Go through `suspects` one by one. For each, decide: fix, leave, or ask. Typical 
   words match a line elsewhere in the song, or another source has it): `insert_line` with the
   lyric's spelling and Whisper's times, then `clear_unmatched`; (b) an ad-lib ("yeah", "oh"):
   leave it out, it is not a lyric; (c) noise: leave it.
+- **`extra_heard`.** Whisper heard several more words in the line's time than the line has. Either
+  something sung there is not in the lyrics (a backing answer, a repeat), or the line was matched
+  to the wrong one of several identical phrases. See the next point.
+- **The same short phrase many times** (backing answers, a repeated hook). The aligner can put a
+  line on the wrong repeat with full confidence. Count: list every time Whisper heard the phrase,
+  work out the spacing between repeats (they usually fall on a steady beat), and check that each
+  lyric line sits on its own repeat in order. Compare with the same passage in another verse.
+- **Lead and backing voices at once.** Words and lines cannot overlap in this file, so two voices
+  singing at the same moment cannot both be written at their true times. Keep the lead on its
+  times; if the backing line cannot fit before or after without lying about when it is sung, leave
+  it as it is and put it under "needs a human ear".
+- **The fade-out.** Lines after the last word Whisper heard are often real (the singer keeps
+  going as the volume drops). Do not delete them for being unheard. If one runs past the end of
+  the audio (`validate` says so), pull its end back inside with `retime_line`.
+- **Ad-libs that are in the lyrics.** If the lyric source wrote the ad-lib as a line, keep it: the
+  source is the authority on words. Only its timing is yours to fix.
+- **Only one lyric source.** Then there is no second opinion on a doubtful word: Whisper against
+  the lyric is one against one. Change the word only for an obvious typo; otherwise list it.
 - **Repeats.** A chorus sung twice is written twice. If the second time has different words in
   the lyrics than the first, check which one the audio supports before "fixing" either.
 
 When the evidence does not settle it, **do not guess**: leave the line and list it under "needs a
 human ear" in the notes. A wrong "correction" is worse than a flagged doubt.
+
+There is one kind of placing that is not a guess: a word Whisper did not hear, whose neighbours on
+both sides were heard, can only be in the slot between them. Put it there. Anything looser than
+that (several unheard words in a row, a whole unheard line moved on the strength of the `.lrc`
+offset or of a parallel verse) is an **estimate**: you may make it when the evidence is good, but
+mark the edit `"estimate": true`. The words then keep a low confidence and the line stays on the
+suspects list as `estimate`, so a person knows to listen there. Without the mark, an edited line
+looks fully verified and disappears from every later check.
 
 ## 3. Write the edits
 
@@ -85,6 +125,13 @@ A JSON file with a list of edits, each with a `why`:
 ```
 
 - `word` is the index `i` from the brief. Times are seconds.
+- Add `"estimate": true` to any edit whose times you did not take from heard words.
+- `shift_line` moves every word by the same amount. `retime_line` stretches or squeezes the
+  line's words evenly into the new start and end. `set_line` replaces the line's words outright.
+- Edits are applied in the order written and each one names its line by id, so order only matters
+  for two edits on the same line. Lines are re-sorted by time at the end.
+- `clear_unmatched` removes entries from the unmatched-audio list in a time range: use it after
+  `insert_line` turned that audio into a line. Leave ad-libs and noise in the list.
 - Keep the lyric's spelling, capitals and punctuation; take only the **times** from Whisper.
 - A word Whisper did not hear (dropped) gets a time that fits between its neighbours.
 - Words in a line must not overlap, and lines must not overlap each other.
@@ -110,6 +157,7 @@ uv run karaoke lyrics-brief <job> > <scratch>/brief.after.json
 Write `data/jobs/<job>/review.md`:
 
 - **Changed**: one line per edit: where, what, why (quote only the changed words).
+- **Estimates**: edits marked `estimate`, with the time and what the placing rests on.
 - **Left as it is**: suspects you checked and kept, with the reason ("Whisper mishearing").
 - **Needs a human ear**: what you could not settle, with the time, so the user can listen there.
 
