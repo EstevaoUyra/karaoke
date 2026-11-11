@@ -168,7 +168,7 @@ def test_build_command_mixes_guide_vocals(tmp_path):
     fc = args[args.index("-filter_complex") + 1]
     assert "[bg]ass=filename=karaoke.ass[v]" in fc
     assert "[2:a]" in fc and "volume=-18.0dB" in fc and "amix=inputs=2" in fc
-    assert args[args.index("-crf") + 1] == "20" and args[args.index("-preset") + 1] == "medium"
+    assert args[args.index("-crf") + 1] == "22" and args[args.index("-preset") + 1] == "medium"
     assert args[args.index("-b:a") + 1] == "192k"
     no_guide = build_command(
         bg_inputs=[], bg_filter="color=c=black[bg]", frames=720, fps=30, ass_name="karaoke.ass",

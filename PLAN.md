@@ -187,7 +187,7 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
 - **ASS subtitles with `\kf` tags** (smooth left-to-right fill), rendered by libass inside ffmpeg. This is the classic karaoke look, cheap to render, and font/colour/outline are all styleable.
 - Layout: current line plus the next line (dimmed). Lines appear ~1.5 s before they start. A **countdown indicator** shows before lines that follow a gap of more than 4 s. A title card (title / artist) covers the intro.
 - Background compositor: build one background video from `background.json` with `ffmpeg` (`zoompan` for Ken Burns, `xfade` for transitions), then overlay the ASS. Plan B if the filtergraph gets unwieldy: render background frames with Pillow/numpy and pipe them to ffmpeg.
-- Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 20).
+- Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 22).
 - **Optional pitch guide** (`render.show_pitch`, off by default): the sung melody from `melody.json`
   at the top of the screen. Notes scroll right to left past a fixed playhead and fill with the sung
   colour as they cross it. It is drawn in the same ASS (libass vector drawings, `\move` + `\clip`),
