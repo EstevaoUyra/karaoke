@@ -262,7 +262,8 @@ def build_graph(
             k = add_input(["-i", str(clip)])
             head = f"[{k}:v]"
             # bicubic upscale of a soft picture, then a blur that removes the scaling steps
-            steps = [f"scale={W}:{H}:flags=bicubic", f"gblur=sigma={H / 60:.2f}",
+            # ... and fine noise: a dark, smooth field in 8 bits shows its steps as bands otherwise
+            steps = [f"scale={W}:{H}:flags=bicubic", f"gblur=sigma={H / 60:.2f}", "noise=alls=3:allf=t",
                      f"tpad=stop_mode=clone:stop_duration={secs}"]
         else:  # pragma: no cover — the model's Literal forbids it
             raise ValueError(f"unknown source type {src.type!r}")
@@ -281,7 +282,8 @@ def build_graph(
                           f"offset={offset:.6f}[{out}]")
             acc_frames += c.frames - c.fade_in
         else:
-            chains.append(f"[{acc}][c{i}]concat=n=2:v=1:a=0[{out}]")
+            # concat hands on a 1/1000000 timebase; a later xfade needs both inputs on 1/fps
+            chains.append(f"[{acc}][c{i}]concat=n=2:v=1:a=0,fps={fps}[{out}]")
             acc_frames += c.frames
         acc = out
     assert acc_frames == total, (acc_frames, total)

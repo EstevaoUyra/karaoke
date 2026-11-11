@@ -170,7 +170,10 @@ def frames(value: str, fps: int, lo: int, hi: int, structure: Structure | None, 
                 xx = dx + 0.04 * np.sin(2 * np.pi * (ph * 0.3 + dy))
                 d2 = ((x - xx) * aspect) ** 2 + (y - yy) ** 2
                 rgb = rgb + colour(cpos + shift) * (np.exp(-d2 / (2 * r * r)) * (0.10 + 0.16 * level))[..., None]
-        yield np.clip(rgb, 0, 255).astype(np.uint8)
+        # dither before rounding to 8 bits: the picture is dark and smooth, and it is scaled up 6x
+        # (seeded by the frame number: the same song time gives the same picture in any clip)
+        dither = np.random.default_rng(f)
+        yield np.clip(rgb + dither.uniform(-0.5, 0.5, rgb.shape), 0, 255).astype(np.uint8)
 
 
 def render_clip(value: str, fps: int, lo: int, hi: int, structure: Structure | None, duration: float,
@@ -180,7 +183,7 @@ def render_clip(value: str, fps: int, lo: int, hi: int, structure: Structure | N
     out.parent.mkdir(parents=True, exist_ok=True)
     cmd = [ffmpeg_bin, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(fps), "-i", "-",
-           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)]
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "4", "-pix_fmt", "yuv444p", str(out)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         for frame in frames(value, fps, lo, hi, structure, duration, size):
