@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from karaoke.api.deps import issue_dict, job_paths, require_idle, state
 from karaoke.api.queue import RunRequest
+from karaoke.api.youtube import summary as youtube_summary
 from karaoke.models import Job, JobSettings, Meta, StageName, StageState, StageStatus, now
 from karaoke.pipeline import ORDER, STAGE_BY_NAME, stage_hash
 from karaoke.store import JobPaths, JobStore, atomic_write_text, read_model, read_model_opt
@@ -53,6 +54,7 @@ def job_summary(request: Request, job: Job) -> dict:
         "thumbnail": meta.thumbnail if meta else None,
         "stages": {name.value: {"status": s.status.value, "progress": s.progress} for name, s in job.stages.items()},
         "queue": st.queue.state_for(job.id),
+        "youtube": youtube_summary(st.store.paths(job.id)),
     }
 
 

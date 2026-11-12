@@ -113,3 +113,19 @@ def test_portuguese_to_is_not_english_to():
     assert match_tokens("tô") == ["estou"]
     assert match_tokens("to") == ["to"]
     assert line_key("Sweet Child O' Mine") == "sweet child of mine"
+
+
+def test_title_cased_lyrics_become_sentence_case():
+    from karaoke.lyrics.normalize import is_title_cased, parse_lyrics_text, sentence_case
+
+    text = ("[Refrão]\nQuero Um Som Que Me Agrada\nToca De Noite E De Dia\n"
+            "E Ninguém Se Incomoda, Ninguém Se Incomoda.\nPra Ve-la No SOM, KayaMan Vem. Agita\n")
+    lines = [ln for st in parse_lyrics_text(text) for ln in st.lines]
+    assert lines == ["Quero um som que me agrada", "Toca de noite e de dia",
+                     "E ninguém se incomoda, ninguém se incomoda.", "Pra ve-la no SOM, KayaMan vem. Agita"]
+    assert sentence_case("And I Said I'm Here") == "And I said I'm here"
+    # ordinary lyrics with a few names keep them
+    normal = ["Eu vi a Babilônia cair", "I saw the light in Rio de Janeiro", "e Jah me guia no caminho",
+              "a gente canta junto"]
+    assert not is_title_cased(normal)
+    assert [ln for st in parse_lyrics_text("\n".join(normal)) for ln in st.lines] == normal

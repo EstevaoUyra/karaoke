@@ -3,6 +3,7 @@ import { api, fileUrl } from "../api";
 import type { JobDetail, RenderSettingsDoc } from "../types";
 import { fmtDuration } from "../lib/time";
 import { VideoPreview } from "../components/VideoPreview";
+import { YouTubePanel } from "../components/YouTubePanel";
 
 const FONTS = ["Arial Rounded MT Bold", "Arial Black", "Helvetica Neue", "Avenir Next", "Futura", "Verdana", "Georgia"];
 
@@ -157,6 +158,7 @@ export function RenderTab({ detail }: { detail: JobDetail }) {
           </div>
         )}
       </div>
+      <YouTubePanel id={id} hasFinal={Boolean(detail.files.final_video)} />
       </div>
     </div>
   );

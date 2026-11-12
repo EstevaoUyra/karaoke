@@ -7,6 +7,7 @@ export type ServerEvent =
   | { type: "queue"; data: QueueSnapshot }
   | { type: "files"; data: { job_id: string; paths: string[] } }
   | { type: "jobs"; data: { job_id: string } }
+  | { type: "youtube"; data: { job_id: string; status: "queued" | "running" | "done" | "failed"; message: string } }
   | { type: "hello"; data: Record<string, never> };
 
 type Listener = (e: ServerEvent) => void;
@@ -28,7 +29,7 @@ function ensureSource() {
   source = new EventSource("/api/events");
   source.onopen = () => setConnected(true);
   source.onerror = () => setConnected(false); // the browser reconnects by itself
-  for (const type of ["stage", "queue", "files", "jobs", "hello"] as const) {
+  for (const type of ["stage", "queue", "files", "jobs", "youtube", "hello"] as const) {
     source.addEventListener(type, (m) => {
       let data: unknown = {};
       try {

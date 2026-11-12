@@ -201,7 +201,57 @@ def parse_lyrics_text(text: str) -> list[Stanza]:
             cur = Stanza(None, [])
         cur.lines.extend([line] * n)
     close()
-    return [st for st in stanzas if st.lines]
+    stanzas = [st for st in stanzas if st.lines]
+    if is_title_cased([ln for st in stanzas for ln in st.lines]):
+        for st in stanzas:
+            st.lines = [sentence_case(ln) for ln in st.lines]
+    return stanzas
+
+
+# --------------------------------------------------------------------------- capitals
+
+# Some lyrics sites write Every Word With A Capital. When most words past the first of their line do,
+# the song is put in sentence case. Normal lyrics stay well under this (names, "I", the line start).
+TITLE_CASE_SHARE = 0.5
+_KEEP_CAPS = {"I", "I'm", "I'll", "I've", "I'd", "I’m", "I’ll", "I’ve", "I’d"}
+
+
+def _letters(word: str) -> str:
+    return "".join(c for c in word if c.isalpha())
+
+
+def is_title_cased(lines: list[str]) -> bool:
+    n = caps = 0
+    for ln in lines:
+        for w in ln.split()[1:]:
+            a = _letters(w)
+            if a:
+                n += 1
+                caps += a[0].isupper()
+    return n >= 10 and caps / n > TITLE_CASE_SHARE
+
+
+def _titled(word: str) -> bool:
+    """'Quero', 'Ve-la', 'Natty-Party': a capital, then small letters. Not 'SOM', 'KayaMan', 'I'."""
+    parts = [_letters(x) for x in re.split(r"[-‐]", word)]
+    parts = [x for x in parts if x]
+    if word.strip(".,!?;:\"'()") in _KEEP_CAPS:
+        return False
+    return bool(parts) and parts[0][0].isupper() and all(x[1:] == x[1:].lower() for x in parts)
+
+
+def sentence_case_words(words: list[str]) -> list[str]:
+    """Lowercase the title-cased words of one line, except the first and any after . ! or ?"""
+    out = []
+    start = True
+    for w in words:
+        out.append(w if start or not _titled(w) else w.lower())
+        start = w.rstrip("\"')»”").endswith((".", "!", "?"))
+    return out
+
+
+def sentence_case(line: str) -> str:
+    return " ".join(sentence_case_words(line.split()))
 
 
 def flatten(stanzas: list[Stanza]) -> list[tuple[str | None, str]]:

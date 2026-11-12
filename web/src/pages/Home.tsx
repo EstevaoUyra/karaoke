@@ -104,8 +104,39 @@ function NewSong({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+type Filter = "all" | "todo" | "uploaded";
+const FILTER_KEY = "karaoke.songFilter";
+const FILTERS: [Filter, string][] = [["all", "All"], ["todo", "Not on YouTube"], ["uploaded", "On YouTube"]];
+
+const onYouTube = (j: JobSummary) => Boolean(j.youtube?.video_id);
+
+function readFilter(): Filter {
+  try {
+    const v = localStorage.getItem(FILTER_KEY);
+    return v === "todo" || v === "uploaded" ? v : "all";
+  } catch {
+    return "all";
+  }
+}
+
+export function YouTubeBadge({ job }: { job: JobSummary }) {
+  const y = job.youtube;
+  if (y?.task) return <span className="ytbadge">{y.task === "queued" ? "Waiting to upload" : "Uploading…"}</span>;
+  if (!y?.video_id) return null;
+  return <span className={`ytbadge ${y.privacy ?? ""}`}>On YouTube · {y.privacy}</span>;
+}
+
 export function Home() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
+  const [filter, setFilterState] = useState<Filter>(readFilter);
+  const setFilter = (f: Filter) => {
+    setFilterState(f);
+    try {
+      localStorage.setItem(FILTER_KEY, f);
+    } catch {
+      /* private window: the filter just is not remembered */
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const load = () => api.jobs().then(setJobs, (e: Error) => setError(e.message));
   const later = useThrottled(() => void load(), 800);
@@ -113,7 +144,7 @@ export function Home() {
     void load();
   }, []);
   useServerEvent((e) => {
-    if (e.type === "jobs" || e.type === "queue") later();
+    if (e.type === "jobs" || e.type === "queue" || e.type === "youtube") later();
     if (e.type === "stage") {
       setJobs((js) => js && js.map((j) => (j.id !== e.data.job_id ? j : {
         ...j, stages: { ...j.stages, [e.data.stage]: { status: e.data.status, progress: e.data.progress } },
@@ -121,15 +152,35 @@ export function Home() {
     }
   });
 
+  const shown = (jobs ?? []).filter((j) => filter === "all" || onYouTube(j) === (filter === "uploaded"));
+
   return (
     <div className="home">
       <NewSong onCreated={load} />
       <section>
-        <h2 style={{ marginBottom: "0.5rem" }}>Songs</h2>
+        <div className="row" style={{ marginBottom: "0.5rem" }}>
+          <h2 style={{ margin: 0 }}>Songs</h2>
+          <span className="spacer" />
+          {jobs && jobs.length > 0 && (
+            <div className="filters" role="group" aria-label="Show">
+              {FILTERS.map(([f, label]) => {
+                const n = f === "all" ? jobs.length : jobs.filter((j) => onYouTube(j) === (f === "uploaded")).length;
+                return (
+                  <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                    {label} <span className="faint">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         {error && <p className="notice err">Could not load the songs: {error}</p>}
         {jobs && jobs.length === 0 && <p className="muted">No songs yet. Paste a link above to make the first one.</p>}
         <div className="joblist">
-          {jobs?.map((j) => (
+          {jobs && jobs.length > 0 && shown.length === 0 && (
+            <p className="muted">{filter === "uploaded" ? "No song is on YouTube yet." : "Every song is on YouTube."}</p>
+          )}
+          {shown.map((j) => (
             <a key={j.id} className="jobrow" href={jobHref(j.id, j.stages.align?.status === "done" ? "lyrics" : "pipeline")}>
               {j.thumbnail ? <img className="thumb" src={j.thumbnail} alt="" loading="lazy" /> : <div className="thumb" />}
               <div style={{ minWidth: 0 }}>
@@ -138,6 +189,7 @@ export function Home() {
                   {[j.artist, j.duration ? fmtTime(j.duration, 0) : null].filter(Boolean).join(", ")}
                 </div>
                 <div className="jobmeta">{jobStatusText(j)}</div>
+                <div className="jobbadges"><YouTubeBadge job={j} /></div>
               </div>
               <StageStrip job={j} />
             </a>

@@ -609,8 +609,10 @@ def _extras(p: JobPaths, yt: Any, y: YouTubeUpload, log: Callable[[str], None]) 
                 str(p.root / y.thumbnail), mimetype="image/jpeg")).execute()
             log("thumbnail set")
         except Exception as exc:  # noqa: BLE001 — custom thumbnails need a phone-verified channel
-            log(f"thumbnail not set ({exc}); custom thumbnails need a verified channel "
-                "(youtube.com/verify)")
+            if getattr(getattr(exc, "resp", None), "status", None) == 403:
+                log("thumbnail not set: custom thumbnails need a phone-verified channel (youtube.com/verify)")
+            else:
+                log(f"thumbnail not set ({exc})")
     if y.playlist:
         try:
             pid = _playlist_id(yt, y.playlist, log)

@@ -224,3 +224,56 @@ def test_update_sends_edits_and_privacy(job):
     assert body["id"] == "VID00000001" and body["snippet"]["title"] == "New title"
     assert body["status"]["privacyStatus"] == "public" and out.privacy == "public"
     assert read_model(job.youtube, YouTubeUpload).privacy == "public"
+
+
+# --------------------------------------------------------------------------- API
+
+
+@pytest.fixture
+def api_client(store, job, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from karaoke.api import youtube as api_yt
+    from karaoke.api.app import create_app
+    from karaoke.config import get_settings
+
+    s = get_settings().model_copy(update={"youtube_client_secret": tmp_path / "secret.json",
+                                          "youtube_token": tmp_path / "token.json"})
+    (tmp_path / "secret.json").write_text("{}")
+    fake = FakeYouTube()
+    monkeypatch.setattr(yt, "service", lambda: fake)
+    api_yt._tasks.clear()
+    app = create_app(store, s, watch=False, web_dist=None)
+    with TestClient(app) as c:
+        c.fake = fake
+        yield c
+
+
+def test_api_draft_edit_upload_and_list_badge(api_client, job):
+    c, jid = api_client, job.id
+    st = c.get(f"/api/jobs/{jid}/youtube").json()
+    assert st["draft"] is None and st["video_ready"] and st["client_secret"] and not st["signed_in"]
+    assert next(j for j in c.get("/api/jobs").json() if j["id"] == jid)["youtube"] is None
+
+    st = c.post(f"/api/jobs/{jid}/youtube/draft").json()
+    assert st["draft"]["title"].startswith("Demo Band - Sing It Loud")
+    st = c.put(f"/api/jobs/{jid}/youtube", json={"title": "Edited", "description": "d", "tags": [" a ", "", "b"],
+                                                 "privacy": "unlisted", "playlist": " "}).json()
+    assert st["draft"]["tags"] == ["a", "b"] and st["draft"]["playlist"] is None
+    assert st["draft"]["warnings"]  # kept from the draft
+
+    assert c.post(f"/api/jobs/{jid}/youtube/upload").status_code == 202
+    for _ in range(200):
+        task = c.get(f"/api/jobs/{jid}/youtube").json()["task"]
+        if task["status"] in ("done", "failed"):
+            break
+        import time
+        time.sleep(0.02)
+    assert task["status"] == "done", task
+    assert c.fake.calls[0][1]["snippet"]["title"] == "Edited"
+    row = next(j for j in c.get("/api/jobs").json() if j["id"] == jid)
+    assert row["youtube"]["video_id"] == "VID00000001" and row["youtube"]["privacy"] == "unlisted"
+    assert c.post(f"/api/jobs/{jid}/youtube/upload").status_code == 409  # already up
+
+    st = c.post(f"/api/jobs/{jid}/youtube/update", json={"privacy": "public"}).json()
+    assert st["draft"]["privacy"] == "public" and c.fake.calls[-1][0] == "update"
