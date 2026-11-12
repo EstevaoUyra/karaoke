@@ -347,6 +347,32 @@ class Structure(_Model):
     updated_at: datetime = Field(default_factory=now)
 
 
+# --------------------------------------------------------------------------- output/youtube.json
+
+
+class YouTubeUpload(_Model):
+    """What ``karaoke publish`` sends to YouTube. Written as a draft for the user to edit; the
+    upload fields at the bottom are filled in by the upload and must not be edited by hand."""
+
+    version: Literal[1] = 1
+    title: str  # at most 100 characters, no "<" or ">"
+    description: str  # at most 5000 bytes, no "<" or ">"
+    tags: list[str] = Field(default_factory=list)  # at most 500 characters in all (see karaoke.youtube)
+    category_id: str = "10"  # Music
+    language: str | None = None  # BCP-47 of the title and description, e.g. "pt-BR"
+    audio_language: str | None = None
+    privacy: Literal["private", "unlisted", "public"] = "private"
+    made_for_kids: bool = False
+    contains_synthetic_media: bool = False  # YouTube's "altered or synthetic content" disclosure
+    playlist: str | None = None  # title of one of your playlists; created (private) if missing
+    thumbnail: str | None = None  # relative to the job dir, e.g. "output/thumbnail.jpg"
+    warnings: list[str] = Field(default_factory=list)  # what the draft could not settle; read before uploading
+    # filled in by the upload
+    video_id: str | None = None
+    uploaded_at: datetime | None = None
+    video_sha1: str | None = None  # of output/karaoke.mp4 when it was uploaded
+
+
 # --------------------------------------------------------------------------- export
 
 
@@ -359,4 +385,5 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "background": Background,
     "melody": Melody,
     "structure": Structure,
+    "youtube": YouTubeUpload,
 }

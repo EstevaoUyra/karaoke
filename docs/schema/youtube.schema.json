@@ -1,0 +1,150 @@
+{
+  "additionalProperties": false,
+  "description": "What ``karaoke publish`` sends to YouTube. Written as a draft for the user to edit; the\nupload fields at the bottom are filled in by the upload and must not be edited by hand.",
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "category_id": {
+      "default": "10",
+      "title": "Category Id",
+      "type": "string"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language"
+    },
+    "audio_language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Audio Language"
+    },
+    "privacy": {
+      "default": "private",
+      "enum": [
+        "private",
+        "unlisted",
+        "public"
+      ],
+      "title": "Privacy",
+      "type": "string"
+    },
+    "made_for_kids": {
+      "default": false,
+      "title": "Made For Kids",
+      "type": "boolean"
+    },
+    "contains_synthetic_media": {
+      "default": false,
+      "title": "Contains Synthetic Media",
+      "type": "boolean"
+    },
+    "playlist": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Playlist"
+    },
+    "thumbnail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Thumbnail"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "video_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Video Id"
+    },
+    "uploaded_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uploaded At"
+    },
+    "video_sha1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Video Sha1"
+    }
+  },
+  "required": [
+    "title",
+    "description"
+  ],
+  "title": "YouTubeUpload",
+  "type": "object"
+}

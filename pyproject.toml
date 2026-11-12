@@ -37,6 +37,8 @@ dependencies = [
     "torchcrepe==0.0.24",
     "cutlet>=0.5.2",
     "unidic-lite>=1.0.8",
+    "google-api-python-client>=2.150",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [project.scripts]
