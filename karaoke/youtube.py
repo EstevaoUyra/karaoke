@@ -6,7 +6,7 @@ Two steps, so a person reads what goes out before it does:
    from the song's sections, the background pictures' credits and licences), tags, and a thumbnail
    taken from the title card. The user edits it as they like.
 2. ``upload(p)`` sends ``output/karaoke.mp4`` with that metadata through the YouTube Data API v3
-   (a resumable upload), private unless the file says otherwise, then sets the thumbnail and the
+   (a resumable upload), unlisted unless the file says otherwise, then sets the thumbnail and the
    playlist. ``update(p)`` pushes later edits of the file (a new title, ``"privacy": "public"``) to
    the video already uploaded.
 
@@ -16,7 +16,7 @@ is saved next to it, outside the repo. The Google libraries are imported only wh
 
 Credits follow what the licences ask for: title, author, source, licence with its link, and that
 the picture was changed. The backing track is the original recording with the voice taken out, so
-YouTube's Content ID will usually claim it; that is why uploads start private.
+YouTube's Content ID will usually claim it; that is why uploads start unlisted, not public.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from karaoke.models import (
     YouTubeUpload,
     now,
 )
+from karaoke.render.ass import lead_pad_s
 from karaoke.store import JobPaths, file_hash, read_model, read_model_opt, write_model
 
 MADE_WITH = "https://github.com/EstevaoUyra/karaoke"
@@ -209,9 +210,11 @@ def _stamp(t: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def chapters(st: Structure | None, lang: str) -> list[tuple[float, str]]:
+def chapters(st: Structure | None, lang: str, offset: float = 0.0) -> list[tuple[float, str]]:
     """Chapters from the song's sections: neighbours with the same label merged, sections shorter
-    than YouTube's minimum folded into the one before. Empty if YouTube would not show them."""
+    than YouTube's minimum folded into the one before. Empty if YouTube would not show them.
+    ``offset``: the silence the video opens with (``render.ass.lead_pad_s``); the first chapter
+    still starts at 0:00 and covers it."""
     if not st or not st.sections:
         return []
     merged: list[list[Any]] = []  # [start, end, label]
@@ -233,7 +236,7 @@ def chapters(st: Structure | None, lang: str) -> list[tuple[float, str]]:
     for s, _, lab in merged:
         seen[lab] = seen.get(lab, 0) + 1
         name = labels[lab] + (f" {seen[lab]}" if count[lab] > 1 and lab in ("verse", "chorus") else "")
-        out.append((s, name))
+        out.append((s + offset if s > 0 else 0.0, name))
     return out
 
 
@@ -397,7 +400,10 @@ def build_draft(p: JobPaths) -> YouTubeUpload:
                               feat=t["feat"].format(names=", ".join(feat)) if feat else "")]
     if meta.url:
         desc.append(t["original"].format(url=meta.url))
-    chs = chapters(st, lang)
+    job = read_model_opt(p.job, Job)
+    lf = read_model_opt(p.lyrics_final, LyricsFinal)
+    lead = lead_pad_s(lf, job.settings.render) if (lf and job) else 0.0
+    chs = chapters(st, lang, lead)
     if chs:
         desc += ["", t["chapters"], *[f"{_stamp(s)} {name}" for s, name in chs]]
         warnings.append("the chapter names come from guessed section labels: check them against the song")
@@ -410,8 +416,8 @@ def build_draft(p: JobPaths) -> YouTubeUpload:
     desc += ["", " ".join(dict.fromkeys([karaoke_tag, _hashtag(artist), _hashtag(song)]))]
     if lang == "ja":
         warnings.append("Japanese song: add the title in Japanese script (and the anime, if any) to the title and tags")
-    warnings.append("the backing track is the original recording: expect a Content ID claim. Upload private, "
-                    "check the Copyright column in YouTube Studio, then make it public")
+    warnings.append("the backing track is the original recording: expect a Content ID claim. Check the "
+                    "Copyright column in YouTube Studio before making it public")
 
     thumb = make_thumbnail(p, st)
     return YouTubeUpload(

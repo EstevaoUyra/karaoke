@@ -11,7 +11,7 @@ export function YouTubePanel({ id, hasFinal }: { id: string; hasFinal: boolean }
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
-  const [privacy, setPrivacy] = useState<Privacy>("private");
+  const [privacy, setPrivacy] = useState<Privacy>("unlisted");
   const [playlist, setPlaylist] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);

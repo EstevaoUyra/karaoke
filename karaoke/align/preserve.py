@@ -9,7 +9,7 @@ Those words are never overwritten by ``align``. They are found in the new lines:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
 
@@ -28,6 +28,9 @@ class Preserved:
     words: dict[tuple[int, int], Word]  # (line index, word index) -> old word, kept exactly
     flags: dict[int, list[str]]  # line index -> old non-computed flags (e.g. ai_edited)
     lost: list[str]  # descriptions of edits that could not be placed
+    # Old lines kept whole, beside the lyrics: lines a person or the AI added (every word edited,
+    # matching no lyric line, e.g. a spoken intro) and edited lines filled in from whisper ("w001").
+    standalone: list[Line] = field(default_factory=list)
 
 
 def _joined(words: list[str]) -> str:
@@ -45,6 +48,9 @@ def collect(previous: LyricsFinal | None, lines: list[LyricLine]) -> Preserved:
         keep = [(i, w) for i, w in enumerate(old.words) if w.origin in KEEP]
         if not keep:
             continue
+        if old.id.startswith("w"):  # filled in from whisper, then edited: there is no lyric line for it
+            out.standalone.append(old.model_copy(deep=True))
+            continue
         target = _same_line(old, by_id.get(old.id))
         if target is not None:
             for i, w in keep:
@@ -56,8 +62,14 @@ def collect(previous: LyricsFinal | None, lines: list[LyricLine]) -> Preserved:
         old_idx = int(old.id[1:]) - 1 if old.id[1:].isdigit() else 0
         ranked = sorted(range(len(lines)), key=lambda k: (-fuzz.ratio(old_text, new_texts[k]), abs(k - old_idx)))
         cand = next((k for k in ranked[:1] if fuzz.ratio(old_text, new_texts[k]) >= 70), None)
+        added = len(keep) == len(old.words)  # every word edited: possibly a line added by hand
+        if added and cand is not None and any((cand, j) in used for j in range(len(lines[cand].words))):
+            cand = None  # the lyric line already holds another old line: this one is an added repeat
         if cand is None:
-            out.lost += [f"{old.id} word {i} {w.text!r}" for i, w in keep]
+            if added:  # a line added by hand: keep it whole
+                out.standalone.append(old.model_copy(deep=True))
+            else:
+                out.lost += [f"{old.id} word {i} {w.text!r}" for i, w in keep]
             continue
         keys = lines[cand].keys
         for i, w in keep:

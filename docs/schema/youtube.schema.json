@@ -53,7 +53,7 @@
       "title": "Audio Language"
     },
     "privacy": {
-      "default": "private",
+      "default": "unlisted",
       "enum": [
         "private",
         "unlisted",

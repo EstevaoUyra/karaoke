@@ -26,8 +26,8 @@ The first upload opens a browser: sign in, choose the channel, allow access. The
 ```bash
 uv run karaoke publish <job>              # writes output/youtube.json and output/thumbnail.jpg
 # read and edit output/youtube.json: title, description, tags, playlist, privacy
-uv run karaoke publish <job> --upload     # uploads, private unless youtube.json says otherwise
-# a day later, check the Copyright column in YouTube Studio, then:
+uv run karaoke publish <job> --upload     # uploads, unlisted unless youtube.json says otherwise
+# check the Copyright column in YouTube Studio, then:
 uv run karaoke publish <job> --update --privacy public
 ```
 
@@ -50,7 +50,7 @@ uv run karaoke publish <job> --update --privacy public
 - **Tags**: artist and song with "karaokê/karaoke/playback", and general karaoke terms, up to
   YouTube's 500 characters (a tag with a space counts 2 more, for its quotes).
 - **Settings**: category Music (10), not made for kids, no altered or synthetic content (the
-  backgrounds are abstract animation and real photographs), the song's language, private, the
+  backgrounds are abstract animation and real photographs), the song's language, unlisted, the
   playlist "Karaokê" or "Karaoke" (created private if you have none by that name).
 - **Thumbnail**: the title card frame, 1280×720. Custom thumbnails need a phone-verified channel
   (<https://www.youtube.com/verify>); without it the upload still works and YouTube picks a frame.
@@ -60,7 +60,7 @@ uv run karaoke publish <job> --update --privacy public
 The backing track is the original recording with the voice removed, and the lyrics belong to their
 authors, so Content ID will usually match the video. Most labels then *claim* it (the video stays
 up and the rights holder takes any ad money; it may be blocked in some countries), but some block
-it or send a takedown, which is a copyright strike. That is why uploads start private: check the
+it or send a takedown, which is a copyright strike. That is why uploads start unlisted (not public): check the
 claims in Studio before making a video public.
 
 ## Limits

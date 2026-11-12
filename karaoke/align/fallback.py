@@ -6,7 +6,7 @@ stream is cut where the *meaning* breaks:
 
 1. a new line starts after ``.!?``, before a capitalised word (whisper capitalises sentence
    starts; the English "I" does not count), and at pauses longer than ``PAUSE_S``;
-2. a lone short word is merged into its neighbour when the two are sung together;
+2. a short piece (a word or two) is merged into its neighbour when the two are sung together;
 3. lines longer than ``MAX_CHARS`` are split at their best break (``karaoke.linebreak``).
 
 Whisper's trailing "…" on a word it cut off is dropped, and the word after it is not treated as
@@ -27,7 +27,7 @@ from karaoke.models import Line, Word, WordOrigin
 PAUSE_S = 2.0  # shorter pauses stay inside a line (the fill waits); longer ones also get the dots
 MAX_CHARS = 42
 MERGE_GAP_S = 0.5  # a lone word joins a neighbour sung closer than this
-SHORT_CHARS = 7  # ... when it is at most this long
+SHORT_LINE_CHARS = 9  # ... when it is at most this long ("King com", "Hugo de": whisper capitalises names)
 
 ELLIPSES = ("...", "…")
 
@@ -47,13 +47,30 @@ def _clean(tokens: list[WToken]) -> list[WToken]:
     return out
 
 
+# A line does not end on these (PT/EN articles, prepositions, conjunctions): "Rio Preto com a / Paraíba"
+# would cut a phrase, so a capitalised word after one of them is a name, not a sentence start.
+NO_LINE_END = {"a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "e", "em", "no", "na", "nos",
+               "nas", "com", "pra", "pro", "para", "por", "que", "the", "an", "of", "and", "to", "in", "on", "with",
+               "for", "at", "from"}
+
+
+def _name_follows(prev: str, word: str) -> bool:
+    """Is a capitalised ``word`` part of a name or phrase begun before it ("São Paulo", "de Janeiro")?"""
+    p = prev.strip()
+    if p.endswith((",", ";", ":")) or p.endswith(SENTENCE_END):
+        return False
+    bare_prev = p.strip("\"'“”‘’()").lower()
+    return bare_prev in NO_LINE_END or starts_sentence(p)
+
+
 def phrases(tokens: list[WToken]) -> list[list[WToken]]:
     """Cut the word stream at sentence ends, sentence starts and pauses."""
     out: list[list[WToken]] = []
     for t in tokens:
         if out:
             prev = out[-1][-1]
-            new = (prev.text.endswith(SENTENCE_END) or starts_sentence(t.text)
+            new = (prev.text.endswith(SENTENCE_END)
+                   or (starts_sentence(t.text) and not _name_follows(prev.text, t.text))
                    or t.start - prev.end > PAUSE_S)
             if not new:
                 out[-1].append(t)
@@ -71,7 +88,7 @@ def _merge_short(chunks: list[list[WToken]]) -> list[list[WToken]]:
     i = 0
     while i < len(out):
         c = out[i]
-        if len(c) == 1 and len(c[0].text) <= SHORT_CHARS and len(out) > 1:
+        if len(_text(c)) <= SHORT_LINE_CHARS and len(out) > 1:
             nxt = out[i + 1] if i + 1 < len(out) else None
             prv = out[i - 1] if i > 0 else None
             if nxt and nxt[0].start - c[-1].end <= MERGE_GAP_S and len(_text(c + nxt)) <= MAX_CHARS:
@@ -118,3 +135,55 @@ def whisper_lines(tokens: list[WToken], duration: float | None, envelope=None) -
         lines.append(Line(id=line_id(len(lines)), start=words[0].start, end=max(w.end for w in words),
                           words=words, flags=[LOW_CONFIDENCE]))
     return lines
+
+
+# --------------------------------------------------------------------------- filling gaps in lyrics
+
+FROM_WHISPER = "from_whisper"  # line flag: the words are what whisper heard, not written lyrics
+FILL_MIN_WORDS = 4  # fewer heard words outside every line are an ad-lib or noise, not a missing passage
+FILL_MIN_DISTINCT = 3  # "yeah yeah yeah yeah" is not a passage either
+FILL_MIN_PROB = 0.45  # mean whisper probability; lower is mostly guessing in instrumentals
+FILL_MARGIN_S = 0.25  # a heard word this close to a line belongs to that line's neighbourhood
+
+
+def fill_id(index: int) -> str:
+    return f"w{index + 1:03d}"
+
+
+def fill_gaps(free: list[WToken], covered: list[tuple[float, float]], duration: float | None,
+              envelope=None) -> tuple[list[Line], set[int]]:
+    """Lines for what whisper heard where no line is: lyrics sites often have only part of a song.
+
+    ``free`` are the whisper words no lyric word took; ``covered`` the (start, end) of every line
+    there is. Words inside or next to a line are left alone (an ad-lib, a backing answer, a word
+    the lyrics spell differently). Words between two lines (or before the first, after the last)
+    become lines when there are enough of them and whisper was fairly sure, built like a song
+    with no lyrics at all and flagged ``from_whisper`` and ``low_confidence`` for review.
+    Returns the lines (ids ``w001``…, numbered later) and the indices of the words used."""
+    spans = sorted(covered)
+    groups: list[list[WToken]] = []
+    last_gap = -1
+    for t in sorted(free, key=lambda t: t.start):
+        if any(t.start < e + FILL_MARGIN_S and t.end > s - FILL_MARGIN_S for s, e in spans):
+            continue
+        gap = sum(1 for s, _ in spans if s < t.start)  # which gap between lines
+        # a new run in another gap, or after a pause: each run is judged on its own
+        if groups and gap == last_gap and t.start - groups[-1][-1].end <= PAUSE_S:
+            groups[-1].append(t)
+        else:
+            groups.append([t])
+        last_gap = gap
+    lines: list[Line] = []
+    used: set[int] = set()
+    for g in groups:
+        if (len(g) < FILL_MIN_WORDS or len({t.key for t in g}) < FILL_MIN_DISTINCT
+                or sum(t.prob for t in g) / len(g) < FILL_MIN_PROB):
+            continue
+        for ln in whisper_lines(g, duration, envelope):
+            ln.flags = [LOW_CONFIDENCE, FROM_WHISPER]
+            lines.append(ln)
+        used |= {t.index for t in g}
+    lines.sort(key=lambda ln: ln.start)
+    for i, ln in enumerate(lines):
+        ln.id = fill_id(i)
+    return lines, used

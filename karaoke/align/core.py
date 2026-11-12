@@ -30,7 +30,7 @@ from rapidfuzz import fuzz
 
 from karaoke.align import dp
 from karaoke.align.confidence import line_flags, word_conf
-from karaoke.align.fallback import whisper_lines
+from karaoke.align.fallback import fill_gaps, fill_id, whisper_lines
 from karaoke.align.interpolate import (
     BREAK_GAP,
     enforce_monotonic,
@@ -121,6 +121,9 @@ class AlignStats:
     lrc_disabled_reason: str | None = None
     pauses_trimmed: int = 0
     lost_edits: list[str] = field(default_factory=list)
+    kept_lines: int = 0  # lines added by hand kept whole
+    filled_lines: int = 0  # lines made from whisper where the lyrics had nothing
+    filled_words: int = 0
 
 
 # --------------------------------------------------------------------------- LRC anchors
@@ -276,7 +279,8 @@ def align_lyrics(
         stats.pauses_trimmed = trim_words(envelope, times, fixed, [w.text for w in words])
 
     out_lines = _build_lines(lines, words, times, raw, anchors if use_line_timings else {}, preserved)
-    unmatched = _unmatched(toks, used_w, looped)
+    out_lines, filled = _add_standalone_and_fill(out_lines, preserved, toks, used_w, duration, envelope, stats)
+    unmatched = _unmatched(toks, used_w | filled, looped)
     for w in words:
         if w.kind == "matched":
             stats.matched += 1
@@ -644,6 +648,37 @@ def _build_lines(lines: list[LyricLine], words: list[_W], times: list[list[float
     return out
 
 
+def _overlaps(a: Line, b: Line) -> bool:
+    return a.start < b.end and b.start < a.end
+
+
+def _add_standalone_and_fill(out_lines: list[Line], preserved: Preserved, toks: list[WToken], used: set[int],
+                             duration: float | None, envelope: Envelope | None,
+                             stats: AlignStats) -> tuple[list[Line], set[int]]:
+    """Lines beside the lyrics: added lines kept from the previous file, then whisper's words
+    where no line is (see ``fallback.fill_gaps``). A kept line that a lyric line now covers is
+    dropped (and reported), so lines never overlap."""
+    kept: list[Line] = []
+    for ln in sorted(preserved.standalone, key=lambda ln: ln.start):
+        if any(_overlaps(ln, o) for o in out_lines + kept):
+            stats.lost_edits.append(f"{ln.id} (added line {' '.join(w.text for w in ln.words)!r}) now overlaps a line")
+            continue
+        kept.append(ln)
+    stats.kept_lines = len(kept)
+    base = out_lines + kept
+    free = [t for t in toks if t.index not in used]
+    fill, filled = fill_gaps(free, [(ln.start, ln.end) for ln in base], duration, envelope)
+    taken = {ln.id for ln in kept}
+    n = 0
+    for ln in fill:  # number after the edited fill lines that were kept
+        while fill_id(n) in taken:
+            n += 1
+        ln.id = fill_id(n)
+        taken.add(ln.id)
+    stats.filled_lines, stats.filled_words = len(fill), len(filled)
+    return sorted(base + fill, key=lambda ln: ln.start), filled
+
+
 def _compact(texts: list[str]) -> str:
     out: list[str] = []
     i = 0
@@ -690,3 +725,34 @@ def _whisper_fallback(toks: list[WToken], duration: float | None, language: str 
     stats.words = stats.matched = sum(len(ln.words) for ln in out)
     stats.whisper_words = len(toks)
     return LyricsFinal(language=language, text_source=LyricsSourceName.whisper, lines=out), stats
+
+
+def fill_missing(lf: LyricsFinal, transcript: Transcript, duration: float | None = None,
+                 envelope: Envelope | None = None) -> tuple[LyricsFinal, int]:
+    """Add lines from whisper where a reviewed lyrics file has none, without touching any line in
+    it (``karaoke lyrics-fill``). For songs aligned before the aligner did this itself: their
+    review placed lines a new alignment could undo. Returns the new file and the lines added."""
+    if lf.text_source == LyricsSourceName.whisper:
+        return lf, 0
+    if transcript.language == "ja":
+        from karaoke.align.japanese import romaji_tokens
+
+        toks = romaji_tokens(transcript)
+    else:
+        toks = whisper_tokens(transcript)
+    toks, _ = drop_hallucination_loops(toks, [match_key(w.text) for ln in lf.lines for w in ln.words])
+    fill, _ = fill_gaps(toks, [(ln.start, ln.end) for ln in lf.lines], duration, envelope)
+    if not fill:
+        return lf, 0
+    taken = {ln.id for ln in lf.lines}
+    n = 0
+    for ln in fill:
+        while fill_id(n) in taken:
+            n += 1
+        ln.id = fill_id(n)
+        taken.add(ln.id)
+    unmatched = [u for u in lf.unmatched_audio
+                 if not any(u.start < ln.end and ln.start < u.end for ln in fill)]
+    out = lf.model_copy(update={"lines": sorted(lf.lines + fill, key=lambda ln: ln.start),
+                                "unmatched_audio": unmatched})
+    return out, len(fill)

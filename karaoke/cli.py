@@ -162,6 +162,39 @@ def lyrics_apply(
     console.print(f"{len(log)} edit(s) {'checked, nothing saved' if dry_run else 'applied'}")
 
 
+@app.command("lyrics-fill")
+def lyrics_fill(
+    job_id: str,
+    dry_run: Annotated[bool, typer.Option(help="Print the lines that would be added; save nothing.")] = False,
+) -> None:
+    """Add lines from what whisper heard where the lyrics have none (a site with half the song, a
+    spoken intro), leaving every existing line as it is. New songs get this in `align`; use it on
+    songs reviewed before. The lines are flagged from_whisper for review."""
+    from karaoke.align.core import fill_missing
+    from karaoke.align.voicing import Envelope
+    from karaoke.models import LyricsFinal, Meta, Transcript
+    from karaoke.store import read_model, read_model_opt, write_model
+    from karaoke.validate import validate_lyrics
+
+    p = _store().paths(job_id)
+    lf = read_model(p.lyrics_final, LyricsFinal)
+    meta = read_model_opt(p.meta, Meta)
+    env = Envelope.from_file(p.vocals) if p.vocals.exists() else None
+    out, n = fill_missing(lf, read_model(p.transcript, Transcript), meta.duration if meta else None, env)
+    for ln in out.lines:
+        if ln.id.startswith("w") and ln not in lf.lines:
+            print(f"{ln.id} {ln.start:7.2f}-{ln.end:7.2f}  {' '.join(w.text for w in ln.words)}")
+    errors = [i for i in validate_lyrics(out, meta.duration if meta else None) if i.severity == "error"]
+    if errors:
+        for e in errors:
+            console.print(f"[red]{e.message}[/]")
+        raise typer.Exit(1)
+    if n and not dry_run:
+        write_model(p.lyrics_final, out)
+    console.print(f"{n} line(s) {'would be ' if dry_run else ''}added from whisper"
+                  + ("" if dry_run or not n else "; render again to see them"))
+
+
 @app.command("bg-brief")
 def bg_brief(job_id: str) -> None:
     """Print what an art director needs to know about the job (JSON): sections with their lines,
@@ -312,7 +345,7 @@ def publish(
 ) -> None:
     """Put a finished video on YouTube. Without options: write output/youtube.json (title,
     description with chapters and picture credits, tags, thumbnail) to read and edit. Then
-    --upload (private by default), and later --update to publish edits or --privacy public."""
+    --upload (unlisted by default), and later --update to publish edits or --privacy public."""
     from karaoke import youtube as yt
 
     if privacy and privacy not in ("private", "unlisted", "public"):

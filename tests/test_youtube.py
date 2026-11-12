@@ -68,8 +68,9 @@ def test_draft_title_credits_chapters_and_tags(job):
     assert y.title == "Demo Band - Sing It Loud (part. MC Um, MC Dois) | Karaokê (Playback com Letra)"
     d = y.description
     assert d.splitlines()[1] == "Versão original: https://www.youtube.com/watch?v=DEMO0000000"
-    # the short intro joins the first verse; the two chorus sections merge; the outro is too short alone
-    assert "0:00 Verso 1\n0:20 Refrão\n0:40 Verso 2" in d
+    # the short intro joins the first verse; the two chorus sections merge; the outro is too short alone;
+    # the demo sings from 2 s, so the video opens with 4 s of title card first and the chapters follow
+    assert "0:00 Verso 1\n0:24 Refrão\n0:44 Verso 2" in d
     # only the pictures on screen, each once, with author, licence link, source and what was changed
     assert '"Sea at dusk" – Ana Lima, CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)' in d
     assert "via Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Sea.jpg" in d
@@ -78,7 +79,7 @@ def test_draft_title_credits_chapters_and_tags(job):
     assert "Photo by Bo on Unsplash, Unsplash License (https://unsplash.com/license)" in d
     assert "mesma licença" in d  # share-alike
     assert yt.tags_length(y.tags) <= yt.TAGS_MAX and "demo band sing it loud karaokê" in y.tags
-    assert y.privacy == "private" and y.language == "pt-BR" and not y.made_for_kids
+    assert y.privacy == "unlisted" and y.language == "pt-BR" and not y.made_for_kids
     assert yt.check(y) == []
 
 
@@ -197,7 +198,7 @@ def test_upload_saves_the_id_then_thumbnail_and_playlist(job):
     y = yt.upload(job, fake, log=logs.append, sleep=lambda s: None)
     assert y.video_id == "VID00000001" and read_model(job.youtube, YouTubeUpload).video_id == "VID00000001"
     body = fake.calls[0][1]
-    assert body["status"] == {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
+    assert body["status"] == {"privacyStatus": "unlisted", "selfDeclaredMadeForKids": False,
                               "containsSyntheticMedia": False}
     assert body["snippet"]["categoryId"] == "10" and body["snippet"]["defaultLanguage"] == "pt-BR"
     assert ("thumbnail", "VID00000001") in fake.calls or not y.thumbnail  # no ffmpeg frame from a fake video

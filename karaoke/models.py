@@ -361,7 +361,7 @@ class YouTubeUpload(_Model):
     category_id: str = "10"  # Music
     language: str | None = None  # BCP-47 of the title and description, e.g. "pt-BR"
     audio_language: str | None = None
-    privacy: Literal["private", "unlisted", "public"] = "private"
+    privacy: Literal["private", "unlisted", "public"] = "unlisted"
     made_for_kids: bool = False
     contains_synthetic_media: bool = False  # YouTube's "altered or synthetic content" disclosure
     playlist: str | None = None  # title of one of your playlists; created (private) if missing

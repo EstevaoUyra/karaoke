@@ -84,6 +84,7 @@ PITCH_PAUSE_S = 1.0  # rap has unpitched stretches of up to ~0.6 s (consonant cl
 # syllable starts on every beat; a pause has none. A pitch pause with at least two onsets, one
 # per this many seconds, is singing.
 SUNG_ONSET_EVERY_S = 0.8
+MAX_PAUSE_MOVE_S = 4.0  # a word is not moved further than this across a pitch pause (spoken words have no pitch)
 START_TOL_S = 0.3  # a word starting this close before a pause starts is the first word after it
 SQUEEZED_WORD_S = 0.12  # shortest word when words are moved out of a pause
 
@@ -319,8 +320,8 @@ def retime_across_pauses(env: Envelope, times: list[list[float]], fixed: list[bo
                     times[i][1] = round(ne, 3)
                     changed.add(i)
         moved = [i for i in inside if i >= m and times[i][0] < b]
-        if not moved:
-            continue
+        if not moved or b - times[moved[0]][0] > MAX_PAUSE_MOVE_S:
+            continue  # whisper is never this far off: a long unpitched stretch is speech, not a pause
         k = moved[-1]
         start = max(b - LEAD_PAD_S / 2, times[m - 1][1] if m > 0 else 0.0)
         end = times[k][1]

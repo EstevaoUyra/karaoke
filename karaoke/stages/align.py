@@ -81,7 +81,8 @@ def run(ctx: StageContext) -> None:
     flagged = sum(bool(ln.flags) for ln in lf.lines)
     msg = (f"{len(lf.lines)} lines, {stats.matched + stats.fuzzy}/{stats.words} words heard, "
            f"{stats.interpolated} interpolated, {flagged} lines flagged, "
-           f"{stats.pauses_trimmed} pauses trimmed, {len(lf.unmatched_audio)} unmatched audio regions "
+           f"{stats.pauses_trimmed} pauses trimmed, {len(lf.unmatched_audio)} unmatched audio regions, "
+           f"{stats.filled_lines} lines filled in from whisper, {stats.kept_lines} added lines kept "
            f"({time.monotonic() - t0:.2f}s)")
     ctx.log.info("stats: %s", stats)
     ctx.progress(1.0, msg)
