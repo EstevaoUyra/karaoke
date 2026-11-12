@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Melody listening room</title><link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/app.js?v=2"></script>
+</head>
+<body>
+<header><a class="brand" href="/">karaoke <span>/ listening room</span></a><span id="saveStatus" role="status">Opening local review…</span></header>
+<main>
+  <div class="intro"><div><p class="eyebrow">LISTEN FIRST · LABELS HIDDEN</p><h1>Which melody follows the singer?</h1>
+  <p>Compare A and B against the recording. Trust your ears; the annotations can be wrong too.</p></div>
+  <div class="progress"><strong id="progress">0 / 36</strong><span>excerpts reviewed</span><progress id="progressBar" value="0" max="36"></progress></div></div>
+  <div id="error" role="alert" hidden></div>
+  <div class="workspace">
+    <aside><h2>Your session</h2><p>About 20–30 minutes. Pause whenever you like; saved choices stay on this computer.</p>
+      <nav id="caseList" aria-label="Review excerpts"></nav>
+      <p class="legend">✓ finished · ◐ choice saved</p>
+      <a class="secondary download" href="/api/export" download>Download answers</a>
+      <button id="unblind" class="secondary" disabled>Reveal versions & results</button>
+      <p class="small">Version labels vary by excerpt. Selection reasons stay hidden until the review is complete.</p>
+    </aside>
+    <section class="content" aria-label="Listening review">
+      <div class="caseHeading"><div><p id="caseNumber" class="eyebrow"></p><h2 id="title">Loading excerpts…</h2><p id="subtitle"></p></div>
+        <div class="navigation"><button id="previous" aria-label="Previous excerpt">←</button><button id="next" aria-label="Next excerpt">→</button></div></div>
+      <section class="player" aria-label="Audio comparison">
+        <div class="sourceRow"><span>Listen against</span><div class="segmented" role="group" aria-label="Recording source">
+          <button data-source="recording" aria-pressed="true">Original mix</button><button data-source="vocals" aria-pressed="false">Isolated vocals</button>
+        </div></div>
+        <div class="waveWrap"><canvas id="wave" width="1000" height="120" role="img" aria-label="Recording waveform; highlighted area is the passage to inspect"></canvas><span class="focusLabel">passage to inspect</span></div>
+        <input id="seek" type="range" min="0" max="8" step=".01" value="0" aria-label="Position in excerpt">
+        <div class="transport"><button id="play" class="play" disabled>Loading audio…</button><button id="restart" aria-label="Restart excerpt">↺</button>
+          <span id="clock">0:00 / 0:08</span><label><input type="checkbox" id="loop" checked> Loop</label>
+        </div>
+        <div class="comparison"><div class="segmented guides" role="group" aria-label="Melody version">
+          <button data-guide="off" aria-pressed="true">Recording only <kbd>R</kbd></button>
+          <button data-guide="A" aria-pressed="false">Melody A <kbd>A</kbd></button><button data-guide="B" aria-pressed="false">Melody B <kbd>B</kbd></button>
+        </div><label class="solo"><input id="solo" type="checkbox"> Melody alone</label></div>
+        <div class="levels"><label>Recording <input id="sourceVolume" aria-label="Recording volume" type="range" min="0" max="1" step=".01" value=".8"></label>
+          <label>Melody <input id="guideVolume" aria-label="Melody volume" type="range" min="0" max="1" step=".01" value=".6"></label></div>
+        <p class="playerHint">Switch A/B while playing to keep the same position. Same instrument and volume for both. Space plays or pauses.</p>
+      </section>
+      <details class="lyrics"><summary>Lyric words in this excerpt</summary><p id="words"></p><p class="small">Existing word timing can also be imperfect. A cut-off word at the edge is not a melody error.</p></details>
+      <form id="verdictForm">
+        <section class="verdict"><p class="eyebrow">01 / YOUR FIRST IMPRESSION</p><h3>Which guide better matches the lead vocal?</h3>
+          <fieldset id="preference"><legend class="srOnly">A/B preference</legend><div class="choices">
+            <label><input type="radio" name="preference" value="A"> A is closer</label><label><input type="radio" name="preference" value="B"> B is closer</label>
+            <label><input type="radio" name="preference" value="equal_good"> Both sound right</label><label><input type="radio" name="preference" value="equal_bad"> Both sound wrong</label>
+            <label><input type="radio" name="preference" value="unsure"> I can’t tell</label>
+          </div></fieldset>
+          <div class="certainty"><label for="confidence">How sure are you?</label><select id="confidence"><option value="low">Not very sure</option><option value="medium" selected>Fairly sure</option><option value="high">Very sure</option></select></div>
+          <button id="saveChoice" type="button" class="primary">Save A/B choice</button><span id="choiceSaved" class="small"></span>
+        </section>
+        <section id="referenceStep" class="verdict" hidden><p class="eyebrow">02 / CHECK THE ANNOTATION · OPTIONAL</p>
+          <h3>Does the reference agree with what you hear?</h3><p>Reference pitches and timings are hypotheses, not the answer key. You can finish without assessing them.</p>
+          <button id="loadReference" type="button" class="secondary">Listen to the reference</button>
+          <p id="referenceUnavailable" hidden>No reference with a known octave is available for this passage.</p>
+          <div id="referenceControls" hidden><div class="segmented" role="group" aria-label="Reference melody">
+            <button type="button" id="referencePlay">Play / pause</button>
+            <button type="button" data-guide="R" aria-pressed="false">Reference</button><button type="button" data-guide="R2" id="revised" aria-pressed="false" hidden>Revised pitches</button>
+          </div><p class="small">Note ends may be inferred. “Revised pitches” changes only matched onsets; it keeps the old timing. Neither version is a listening verdict.</p>
+          <label for="referenceVerdict">Reference assessment</label><select id="referenceVerdict"><option value="not_assessed">Not assessed</option><option value="matches">Matches what I hear</option><option value="differs">I hear something different</option><option value="ambiguous">More than one plausible interpretation</option><option value="unsure">I can’t tell</option></select></div>
+          <fieldset class="issues"><legend>What needs attention? <span class="small">Optional, choose any</span></legend>
+            <label><input type="checkbox" value="pitch" name="issue"> Pitch choice</label><label><input type="checkbox" value="timing" name="issue"> Word / note timing</label>
+            <label><input type="checkbox" value="syllables" name="issue"> Syllable boundaries</label><label><input type="checkbox" value="alternate_voice" name="issue"> Different vocal lines</label>
+            <label><input type="checkbox" value="unclear_audio" name="issue"> Audio is unclear</label>
+          </fieldset><label for="note">Anything you noticed?</label><textarea id="note" maxlength="4000" rows="3" placeholder="For example: A follows the backing voice near the middle; the lead voice stays lower."></textarea>
+          <button id="finish" class="primary" type="submit">Save & next excerpt</button>
+        </section>
+      </form>
+      <section id="results" class="verdict" hidden><p class="eyebrow">REVIEW COMPLETE · LABELS REVEALED</p><h3>Your listening results</h3>
+        <p>This is a deliberately selected diagnostic sample. Counts are not an overall accuracy estimate.</p><div id="resultTable"></div></section>
+    </section>
+  </div>
+  <footer>Local audio and answers. Nothing is uploaded. Listening preferences are evidence, not a verdict on every reference note.</footer>
+</main>
+<dialog id="confirmation" aria-labelledby="confirmationTitle"><form method="dialog">
+  <h2 id="confirmationTitle">Before you continue</h2><p id="confirmationMessage"></p>
+  <div class="dialogActions"><button value="cancel">Cancel</button><button id="confirmationAccept" class="primary" value="continue">Continue</button></div>
+</form></dialog>
+</body></html>

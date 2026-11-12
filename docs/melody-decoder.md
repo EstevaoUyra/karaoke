@@ -234,3 +234,7 @@ Final validation: 402 Python tests (11 slow tests deselected), 45 web tests, Ruf
 type checking and the production build pass. An eight-second 720p libass render was inspected;
 the syllable rail and pitch contour render correctly. Browser checks cover the melody editor
 and the separate Video overlay in a temporary combined build.
+
+The next step is the [local A/B listening review](melody-listening.md), with 36 diagnostic
+excerpts and saved first preferences before optional reference playback. No listening results
+have been entered for that session yet.
