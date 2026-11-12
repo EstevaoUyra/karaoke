@@ -89,6 +89,32 @@ def test_find_best_nothing():
         assert lrclib.find_best("Nothing Here", "Nobody", 100.0, client=c) is None
 
 
+def test_find_best_refuses_another_artists_song_with_our_title():
+    # Our artist has no record; the title-only search finds a different artist's song of that name.
+    def handler(req):
+        if req.url.path == "/api/get":
+            return httpx.Response(404)
+        if dict(req.url.params).get("track_name") == "Paper Boats" and "artist_name" not in req.url.params:
+            return httpx.Response(200, json=[rec(3, "Paper Boats", "Somebody Else", 180.2)])
+        return httpx.Response(200, json=[])
+
+    with client_for(handler) as c:
+        assert lrclib.find_best("Paper Boats", "Invented Band", 180.0, client=c) is None
+        # without a known artist there is nothing to check against: the title match stands
+        assert lrclib.find_best("Paper Boats", None, 180.0, client=c).record.id == 3
+
+
+def test_find_best_accepts_a_featuring_credit_and_spelling_variants():
+    def handler(req):
+        if req.url.path == "/api/get":
+            return httpx.Response(404)
+        return httpx.Response(200, json=[rec(4, "Paper Boats", "Invénted Band, Guest Singer", 180.2)])
+
+    with client_for(handler) as c:
+        m = lrclib.find_best("Paper Boats", "Invented Band + ", 180.0, client=c)
+    assert m is not None and m.record.id == 4
+
+
 def test_network_error_propagates():
     def handler(req):
         raise httpx.ConnectError("offline", request=req)
@@ -122,3 +148,9 @@ def test_real_plain_title_search_returns_only_the_original_lengths():
 @pytest.mark.slow
 def test_real_sacal_not_on_lrclib():
     assert lrclib.find_best("Vão Querer Me Internar", "Sacal", 153.0) is None
+
+
+@pytest.mark.slow
+def test_real_same_title_by_another_artist_is_refused():
+    # LRCLIB has no Sacal "Ganja"; the title search finds Charly Black's, which must not be used.
+    assert lrclib.find_best("Ganja", "Sacal", 221.2, extra=["Maconha Riddim"]) is None
