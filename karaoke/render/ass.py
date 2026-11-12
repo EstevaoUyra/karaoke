@@ -384,11 +384,12 @@ def _style(name: str, font: str, size: float, primary: str, secondary: str, outl
 
 
 def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: tuple[int, int],
-              beat_s: float | None = None, melody: Melody | None = None) -> str:
+              beat_s: float | None = None, melody: Melody | None = None, contour: tuple | None = None) -> str:
     """The complete .ass document for this song at ``resolution`` (PlayRes = video size).
 
     ``beat_s`` (seconds per beat, see ``render.tempo``) paces the countdown dots. With
-    ``rs.show_pitch`` and a ``melody``, the pitch guide (``render.staff``) is added at the top."""
+    ``rs.show_pitch`` and a ``melody``, the pitch guide is added at the top: ``render.roll`` (which also
+    draws ``contour``, the voice's pitch as (fractional MIDI per frame, hop seconds)) or ``render.staff``."""
     W, H = resolution
     scale = H / BASE_HEIGHT
     fs = rs.font_size * scale
@@ -425,8 +426,16 @@ def build_ass(lyrics: LyricsFinal, meta: Meta, rs: RenderSettings, resolution: t
     ]
     events = build_events(lyrics, meta, rs, resolution, beat_s)
     if rs.show_pitch and melody is not None:
-        from karaoke.render.staff import pitch_events, pitch_style
+        from karaoke.render.staff import pitch_style
 
         header.insert(header.index("[Events]") - 1, pitch_style(rs, resolution))
-        events = sorted(events + pitch_events(melody, rs, resolution, meta.duration), key=lambda e: (e.start, e.layer))
+        if rs.pitch_style == "staff":
+            from karaoke.render.staff import pitch_events
+
+            guide = pitch_events(melody, rs, resolution, meta.duration)
+        else:
+            from karaoke.render.roll import pitch_events
+
+            guide = pitch_events(melody, rs, resolution, meta.duration, lyrics, contour)
+        events = sorted(events + guide, key=lambda e: (e.start, e.layer))
     return "\n".join(header + [str(e) for e in events]) + "\n"

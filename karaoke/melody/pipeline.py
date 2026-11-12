@@ -38,3 +38,24 @@ def notes_from_contour(p: JobPaths, f0: np.ndarray, conf: np.ndarray, hop_s: flo
     prof = profile(tracker) if isinstance(tracker, str) else tracker
     tuning = round(estimate_tuning(midi, conf, hop_s, db, prof=prof), 3)
     return segment(midi, conf, hop_s, db=db, words=words, tuning=tuning, prof=prof), tuning
+
+
+def load_contour_midi(p: JobPaths) -> tuple[np.ndarray, float] | None:
+    """(fractional MIDI per frame with NaN where there is no pitch, hop seconds) from the melody
+    stage's cache (``cache/melody.f0.npz``), or None if it is missing, unreadable or was made from
+    another vocal stem. For drawing the voice's real pitch; numpy only (no torch)."""
+    from karaoke.melody.notes import hz_to_midi
+    from karaoke.store import file_hash
+
+    if not p.melody_f0.exists():
+        return None
+    try:
+        with np.load(p.melody_f0) as z:
+            f0, hop_s = z["f0"].astype(float), float(z["hop_s"])
+            vhash = str(z["vocals_hash"]) if "vocals_hash" in z.files else None
+    except Exception:  # noqa: BLE001 — a broken cache only costs the pitch line
+        return None
+    if vhash and p.vocals.exists() and file_hash(p.vocals) != vhash:
+        return None
+    f0[~(f0 > 0)] = np.nan
+    return hz_to_midi(f0), hop_s

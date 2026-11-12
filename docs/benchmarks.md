@@ -215,3 +215,9 @@ frames the old version also had notes):
   averaged). EN: D major (votes: notes D major, instrumental A major, mix D major; margin 0.21).
   PT: G minor (notes D minor, instrumental G minor 0.87, mix D minor 0.42; margin 0.12).
 - Stage runtime (crepe-tiny, child process included): EN 43 s for 3:40, PT 32 s for 2:33.
+- **Snapping to the key: tried, not adopted.** Idea: a note outside the key whose pitch sits between
+  two semitones (≥ 0.25 from its own) moves to the neighbour inside the key, to draw fewer
+  accidentals. Checked against the vocal stem's CQT chroma over each such note: the chroma preferred
+  the original note more often than the in-key neighbour (EN 9 vs 5, PT 12 vs 5; no margin from
+  0.2 to 0.35 made the in-key side win clearly). The out-of-key notes are mostly real (blue notes,
+  speech-like lines), so the notes are left as tracked.

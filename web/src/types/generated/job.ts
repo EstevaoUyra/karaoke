@@ -20,6 +20,7 @@ export type LeadInS = number;
 export type CountdownGapS = number;
 export type ShowTitleCard = boolean;
 export type ShowPitch = boolean;
+export type PitchStyle = "roll" | "staff";
 export type PitchLookaheadS = number;
 export type PitchTrailS = number;
 export type PitchMinConf = number;
@@ -60,6 +61,7 @@ export interface RenderSettings {
   countdown_gap_s?: CountdownGapS;
   show_title_card?: ShowTitleCard;
   show_pitch?: ShowPitch;
+  pitch_style?: PitchStyle;
   pitch_lookahead_s?: PitchLookaheadS;
   pitch_trail_s?: PitchTrailS;
   pitch_min_conf?: PitchMinConf;

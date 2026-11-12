@@ -174,10 +174,14 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
 - Background compositor: build one background video from `background.json` with `ffmpeg` (`zoompan` for Ken Burns, `xfade` for transitions), then overlay the ASS. Plan B if the filtergraph gets unwieldy: render background frames with Pillow/numpy and pipe them to ffmpeg.
 - Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 20).
 - **Optional pitch guide** (`render.show_pitch`, off by default): the sung melody from `melody.json`
-  as bars on a real treble staff (clef, key signature, ledger lines, ♯/♭/♮ for notes outside the
-  key, "8vb"/"8va" octave shift) at the top of the screen. Notes scroll right to left past a fixed
-  playhead and fill with the sung colour as they cross it. It is drawn in the same ASS (libass vector
-  drawings, `\move` + `\clip`), so rendering is still one ffmpeg pass. See `karaoke/render/staff.py`.
+  at the top of the screen. Notes scroll right to left past a fixed playhead and fill with the sung
+  colour as they cross it. It is drawn in the same ASS (libass vector drawings, `\move` + `\clip`),
+  so rendering is still one ffmpeg pass. Two styles (`render.pitch_style`):
+  - `roll` (default, `karaoke/render/roll.py`): one row per semitone over the song's own range, the
+    voice's real pitch (`cache/melody.f0.npz`) as a thin line over each bar, faint bars where the
+    voice does not hold a pitch, and each word scrolling under its notes.
+  - `staff` (`karaoke/render/staff.py`): a real treble staff (clef, key signature, ledger lines,
+    ♯/♭/♮ for notes outside the key, "8vb"/"8va" octave shift), for people who read music.
 - **The in-browser preview needs no rendering.** The UI plays `instrumental.wav` with an HTML/CSS lyric overlay driven by `lyrics.final.json`, so lyric edits can be checked instantly.
 
 ### Backend / UI
