@@ -39,6 +39,10 @@ def test_brief_has_the_song_its_sections_and_materials(job):
     assert b["materials"]["generated_styles"] == list(generated.STYLES)
     assert b["materials"]["presets"]["video"]["available"] is False
     assert b["current"]["scenes"][0]["locked"] is False
+    assert b["recording"]["source_title"] and b["recording"]["tags"] == []
+    job.source_info.write_text(json.dumps({"description": "Performed by\nthe film's cast", "tags": ["A Film"] * 40}))
+    rec = bg_tools.brief(job)["recording"]
+    assert rec["description"] == "Performed by the film's cast" and len(rec["tags"]) == 15
     json.dumps(b)  # plain data
 
 

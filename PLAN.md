@@ -187,7 +187,7 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
 - **ASS subtitles with `\kf` tags** (smooth left-to-right fill), rendered by libass inside ffmpeg. This is the classic karaoke look, cheap to render, and font/colour/outline are all styleable.
 - Layout: current line plus the next line (dimmed). Lines appear ~1.5 s before they start. A **countdown indicator** shows before lines that follow a gap of more than 4 s. A title card (title / artist) covers the intro.
 - Background compositor: build one background video from `background.json` with `ffmpeg` (`zoompan` for Ken Burns, `xfade` for transitions), then overlay the ASS. Plan B if the filtergraph gets unwieldy: render background frames with Pillow/numpy and pipe them to ffmpeg.
-- Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 20).
+- Two outputs: a `preview` (720p, ultrafast) and a `final` (1080p, CRF 22).
 - **Optional pitch guide** (`render.show_pitch`, off by default): the sung melody from `melody.json`
   at the top of the screen. Notes scroll right to left past a fixed playhead and fill with the sung
   colour as they cross it. It is drawn in the same ASS (libass vector drawings, `\move` + `\clip`),
@@ -259,7 +259,7 @@ Either way, a skill only edits files in the job folder and calls the CLI, so all
   4. Write `background.json` and render a contact sheet and preview for self-check.
 - **Helper scripts:**
   - `audio_sections.py`: energy curve and section boundaries.
-  - `img_search.py`: Wikimedia Commons, free with licence info, plus Claude's own web search. **No keys exist yet.** Pexels/Unsplash adapters are built but switch on only when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` appear in `.env`.
+  - `img_search.py` (built as `karaoke/bg_search.py`, CLI `bg-search`): Wikimedia Commons, free with licence info. The Pexels and Unsplash adapters switch on only when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` appear in `.env`.
   - `img_fetch.py`: download, validate resolution, crop to 16:9 and record credits.
   - `bg_timeline.py`: set/validate scenes and snap to section boundaries.
   - `contact_sheet.py`: a grid of the chosen images with timestamps, so Claude can *look* at its choices.

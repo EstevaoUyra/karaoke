@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fileUrl } from "../api";
 import type { JobDetail, RenderSettingsDoc } from "../types";
 import { fmtDuration } from "../lib/time";
+import { VideoPreview } from "../components/VideoPreview";
 
 const FONTS = ["Arial Rounded MT Bold", "Arial Black", "Helvetica Neue", "Avenir Next", "Futura", "Verdana", "Georgia"];
 
@@ -126,9 +127,15 @@ export function RenderTab({ detail }: { detail: JobDetail }) {
         {error && <p className="notice err">{error}</p>}
       </form>
 
+      <div style={{ display: "grid", gap: "1.25rem", minWidth: 0 }}>
+      <VideoPreview detail={detail} render={rs} />
       <div className="videobox">
+        <h3>Rendered video</h3>
         {info ? (
           <>
+            {detail.files.background && detail.files.background.mtime > info.mtime && (
+              <p className="notice warn">The background was changed after this video was made. Render again to get it into the file.</p>
+            )}
             <video key={`${path}-${info.mtime}`} controls preload="metadata" src={fileUrl(id, path, info.mtime)} />
             <div className="row">
               <span className="muted">
@@ -149,6 +156,7 @@ export function RenderTab({ detail }: { detail: JobDetail }) {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

@@ -1,24 +1,11 @@
 // The play-along stage: the lyric overlay of the video, drawn with HTML/CSS from the lyrics being
 // edited, over the instrumental. No render needed to check an edit.
-import type { CSSProperties } from "react";
-import { fileUrl } from "../api";
+import type { CSSProperties, ReactNode } from "react";
 import { stageView, wordFill } from "../lib/playalong";
 import type { StemPlayer } from "../lib/player";
 import { useClock } from "../lib/usePlayer";
 import type { BackgroundDoc, LineDoc, RenderSettingsDoc } from "../types";
-
-function sceneStyle(jobId: string, bg: BackgroundDoc | null, t: number): CSSProperties {
-  const scene = bg?.scenes.find((s) => s.start <= t && t < s.end) ?? bg?.scenes[0];
-  if (!scene) return {};
-  const src = scene.source;
-  const style: CSSProperties & Record<string, string | number> = { "--dim": scene.dim };
-  if (src.type === "color" && src.value) style.background = src.value;
-  else if (src.type === "gradient" && src.value) {
-    const [a, b] = src.value.split(",");
-    style.background = `linear-gradient(180deg, ${a}, ${b ?? a})`;
-  } else if (src.type === "image" && src.path) style.backgroundImage = `url("${fileUrl(jobId, src.path)}")`;
-  return style;
-}
+import { StageBackground } from "./StageBackground";
 
 export function PlayAlong(props: {
   jobId: string;
@@ -30,6 +17,10 @@ export function PlayAlong(props: {
   tapDown: boolean;
   onWordClick: (li: number, wi: number) => void;
   idle: string | null;
+  /** "video": the video's proportions, with the lyrics where the video has them and its font size. */
+  variant?: "strip" | "video";
+  /** Drawn over the background and under the lyrics (the pitch guide). */
+  children?: ReactNode;
 }) {
   const { lines, player, render } = props;
   const t = useClock(player);
@@ -38,6 +29,7 @@ export function PlayAlong(props: {
     "--fill": render.color_sung,
     "--unfill": render.color_unsung,
     "--outline": render.color_outline,
+    "--fs": render.font_size,
     fontFamily: `"${render.font}", var(--round)`,
   } as CSSProperties;
 
@@ -53,7 +45,9 @@ export function PlayAlong(props: {
   );
 
   return (
-    <div className="stagebox" style={{ ...sceneStyle(props.jobId, props.background, t), ...vars }}>
+    <div className={`stagebox ${props.variant === "video" ? "video" : ""}`} style={vars}>
+      <StageBackground jobId={props.jobId} bg={props.background} t={t} />
+      {props.children}
       {props.tapLabel && <div className={`stage-tap ${props.tapDown ? "down" : ""}`}>{props.tapLabel}</div>}
       {view.countdown !== null && (
         <div className="countdown" aria-label={`${view.countdown}`}>

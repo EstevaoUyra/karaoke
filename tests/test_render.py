@@ -75,10 +75,10 @@ def test_graph_image_static_and_motion(tmp_path):
     make_test_image(tmp_path / "assets/bg/a.jpg")
     for motion, expect in [
         ("none", None),
-        ("kenburns-in", "perspective=x0=W*(1-1/(1+0.12*on/89))/2:y0=H*(1-1/(1+0.12*on/89))/2:"),
-        ("kenburns-out", "x0=W*(1-1/(1+0.12*(1-on/89)))/2"),
-        ("pan-left", "x0=W*(1-1/1.15)*(1-on/89):"),
-        ("pan-right", "x0=W*(1-1/1.15)*on/89:"),
+        ("kenburns-in", "perspective=x0=W*(1-1/(1+0.0240*on/89))/2:y0=H*(1-1/(1+0.0240*on/89))/2:"),
+        ("kenburns-out", "x0=W*(1-1/(1+0.0240*(1-on/89)))/2"),
+        ("pan-left", "x0=W*0.0240*(1-on/89):"),
+        ("pan-right", "x0=W*0.0240*on/89:"),
     ]:
         bg = Background(scenes=[scene("s1", 0, 3, BgSource(type="image", path="assets/bg/a.jpg"),
                                       motion=motion, transition=CUT)])
@@ -88,6 +88,20 @@ def test_graph_image_static_and_motion(tmp_path):
             assert "perspective" not in g.filter
         else:
             assert expect in g.filter and "interpolation=cubic:eval=frame" in g.filter
+
+
+def test_motion_has_one_speed_whatever_the_scene_length(tmp_path):
+    make_test_image(tmp_path / "assets/bg/a.jpg")
+
+    def zoom(seconds, strength="normal", motion="kenburns-in"):
+        bg = Background(motion_strength=strength, scenes=[
+            scene("s1", 0, seconds, BgSource(type="image", path="assets/bg/a.jpg"), motion=motion, transition=CUT)])
+        f = build_graph(bg, tmp_path, tmp_path / "w", size=(640, 360)).filter
+        return float(f.split("(1+")[1].split("*")[0] if "kenburns" in motion else f.split("x0=W*")[1].split("*")[0])
+
+    assert zoom(15) == pytest.approx(0.12) and zoom(7.5) == pytest.approx(0.06)  # twice as long, twice as far
+    assert zoom(15, "subtle") == pytest.approx(0.06) and zoom(15, "strong") == pytest.approx(0.21)
+    assert zoom(120) == 0.25 and zoom(120, motion="pan-right") == 0.20  # a long scene stops at the limit
 
 
 def test_graph_video_dim_blur(tmp_path):
@@ -168,7 +182,7 @@ def test_build_command_mixes_guide_vocals(tmp_path):
     fc = args[args.index("-filter_complex") + 1]
     assert "[bg]ass=filename=karaoke.ass[v]" in fc
     assert "[2:a]" in fc and "volume=-18.0dB" in fc and "amix=inputs=2" in fc
-    assert args[args.index("-crf") + 1] == "20" and args[args.index("-preset") + 1] == "medium"
+    assert args[args.index("-crf") + 1] == "22" and args[args.index("-preset") + 1] == "medium"
     assert args[args.index("-b:a") + 1] == "192k"
     no_guide = build_command(
         bg_inputs=[], bg_filter="color=c=black[bg]", frames=720, fps=30, ass_name="karaoke.ass",

@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     genius_token: str | None = Field(default=None, validation_alias="GENIUS_ACCESS_TOKEN")
     pexels_api_key: str | None = Field(default=None, validation_alias="PEXELS_API_KEY")
     unsplash_access_key: str | None = Field(default=None, validation_alias="UNSPLASH_ACCESS_KEY")
+    # An email or a URL of yours. Wikimedia asks automated clients to say who runs them (in the
+    # User-Agent) and refuses many picture downloads from the ones that do not.
+    contact: str | None = None  # KARAOKE_CONTACT
 
     # --- web ---
     host: str = "127.0.0.1"

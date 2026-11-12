@@ -3,7 +3,7 @@
 Inputs: ``stems/instrumental.wav`` (and ``stems/vocals.wav`` if ``render.guide_vocals_db`` is set),
 ``lyrics.final.json``, ``background.json``, ``assets/bg/``, ``meta.json``.
 Outputs: ``output/karaoke.ass``, plus ``output/preview.mp4`` (preset "preview": 720p, ultrafast)
-or ``output/karaoke.mp4`` (preset "final": 1080p, x264 CRF 20, AAC 192k).
+or ``output/karaoke.mp4`` (preset "final": 1080p, x264 CRF 22, AAC 192k).
 
 1. ``karaoke.render.ass`` builds the ASS from lyrics.final.json and RenderSettings. Each word gets
    a ``\\kf`` fill. Show the current line plus the next (dimmed), each appearing ``lead_in_s``
@@ -38,7 +38,9 @@ class Encode:
 
 ENCODES = {
     "preview": Encode("ultrafast", 28, "128k"),
-    "final": Encode("medium", 20, "192k"),
+    # CRF 22: measured on a generated background, a third smaller than 20 with the fine noise that
+    # hides banding intact; at 23 the noise starts to break into blocks, at 24 the bands are back
+    "final": Encode("medium", 22, "192k"),
 }
 
 

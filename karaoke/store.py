@@ -52,6 +52,10 @@ class JobPaths:
 
     # media
     @property
+    def source_info(self) -> Path:
+        return self.root / "source.info.json"  # yt-dlp's record of the video: description, tags, ...
+
+    @property
     def source_video(self) -> Path:
         return self.root / "source.mp4"
 
@@ -134,6 +138,10 @@ class JobPaths:
     @property
     def bg_credits(self) -> Path:
         return self.bg_assets_dir / "credits.json"
+
+    @property
+    def bg_search_dir(self) -> Path:
+        return self.root / "cache" / "bg_search"  # picture searches: candidates and their thumbnail sheets
 
     # output
     @property
