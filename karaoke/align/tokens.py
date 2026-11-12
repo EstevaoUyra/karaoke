@@ -216,6 +216,9 @@ def whisper_tokens(tr: Transcript) -> list[WToken]:
     return out
 
 
+LOOP_SUNG_STEP = 0.25  # seconds; see drop_hallucination_loops
+
+
 def _max_run(keys: list[str], phrase: list[str]) -> int:
     """Most back-to-back copies of ``phrase`` anywhere in ``keys``."""
     p = len(phrase)
@@ -242,6 +245,10 @@ def drop_hallucination_loops(tokens: list[WToken], lyric_keys: list[str] | None 
     A loop is dropped when it has at least ``min_repeats`` copies and more than twice the
     longest run of that phrase in the lyrics (plus 2). The first copies, up to the lyrics' own
     run length, are kept; the rest are returned separately (reported as ``unmatched_audio``).
+
+    A run whose copies are all at least ``LOOP_SUNG_STEP`` apart is kept whole: that is a sung
+    hook on the beat, misheard ("toça" x9 for "dança"), and its times are the beats. Whisper's
+    loops stack copies on the same instant (every loop in the jobs so far has a 0.0 s step).
     """
     lyric_keys = lyric_keys or []
     keys = [t.key for t in tokens]
@@ -261,6 +268,9 @@ def drop_hallucination_loops(tokens: list[WToken], lyric_keys: list[str] | None 
             if reps < min_repeats:
                 continue
             lyric_reps = _max_run(lyric_keys, phrase)
+            starts = [tokens[i + r * p].start for r in range(reps)]
+            if min(b - a for a, b in zip(starts, starts[1:], strict=False)) >= LOOP_SUNG_STEP:
+                continue
             if reps >= 2 * lyric_reps + 2:
                 hit = (j, p, max(1, lyric_reps))
                 break

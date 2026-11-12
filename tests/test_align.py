@@ -291,6 +291,18 @@ def test_whisper_loop_is_dropped_and_reported():
     assert len(lf.unmatched_audio) == 1 and "(x" in lf.unmatched_audio[0].text
 
 
+def test_sung_repetition_on_the_beat_is_not_a_loop():
+    """A hook whisper mishears nine times on a steady beat ("toça" for "dança") is singing: its
+    copies are distinct beats. A real loop stacks copies on the same instant."""
+    from karaoke.align.tokens import drop_hallucination_loops, whisper_tokens
+
+    sung = [("tossa", round(10 + 0.45 * k, 2), round(10.3 + 0.45 * k, 2)) for k in range(9)]
+    loop = [("glow", 20.0 + 0.1 * (k // 3), 20.05 + 0.1 * (k // 3)) for k in range(12)]
+    kept, dropped = drop_hallucination_loops(whisper_tokens(transcript(sung + loop)), ["dance"] * 9)
+    assert [t.key for t in kept].count("tossa") == 9
+    assert [t.key for t in dropped] == ["glow"] * 11
+
+
 def test_portuguese_accents_and_informal_forms():
     lyrics = ["Tá na hora de ir pra casa", "Cê sabe que o coração não para", "Eu tô aqui, meu bem"]
     lines = parse_chosen_text(song_text(("verso", lyrics)))
@@ -356,6 +368,36 @@ def test_unheard_line_with_lrc_anchor():
     # without the anchor it is still placed sensibly, right after the previous line's words
     lf2, _ = align_lyrics(lines, transcript(heard))
     assert abs(lf2.lines[5].start - truth[5][0][1]) < 1.0
+
+
+def test_small_lrc_offset_moves_unheard_lines_too():
+    """The LRC runs 0.2 s ahead of the voice. Heard lines show whisper's clock, so a line whisper
+    missed must be placed on the same clock, not on the raw LRC time (it would light up early)."""
+    lines, truth = _song()
+    heard_rows = [[(w, s + 0.2, e + 0.2) for w, s, e in r] for r in truth]
+    heard = [w for k, r in enumerate(heard_rows) if k != 5 for w in r]
+    lf, stats = align_lyrics(lines, transcript(heard), lrc=lrc_for(truth), use_line_timings=True)
+    assert_valid(lf)
+    assert stats.lrc_offset == pytest.approx(0.2, abs=0.02)
+    assert lf.lines[5].start == pytest.approx(heard_rows[5][0][1], abs=0.02)
+
+
+def test_misheard_hook_over_several_lines_lands_on_the_heard_beats():
+    """A chopped hook: whisper hears one wrong word per beat ("dumbo" for each "down low") on
+    lines it cannot match at all. The words must sit on those beats, line by line."""
+    hook = ["Down low, down low, down low, down low", "Down low, down low, down low, down low"]
+    lyric = ["Paper boats along the river", *hook, "carry letters I never sent"]
+    lines = parse_chosen_text(song_text(("verse", lyric)))
+    truth = sing(lyric, line_gap=0.5)
+    beats = [(r[k][1], r[k + 1][2]) for r in truth[1:3] for k in range(0, 8, 2)]
+    heard = truth[0] + [("dumbo", s, e) for s, e in beats] + truth[3]
+    lf, _ = align_lyrics(lines, transcript(heard), lrc=lrc_for(truth), use_line_timings=True)
+    assert_valid(lf)
+    for ln, row in zip(lf.lines[1:3], truth[1:3], strict=True):
+        for k in range(0, 8, 2):
+            assert ln.words[k].start == pytest.approx(row[k][1], abs=0.02)  # "Down" on its beat
+            assert row[k][1] < ln.words[k + 1].start < row[k + 1][2]  # "low" inside the same beat
+    assert lf.unmatched_audio == []
 
 
 def test_lrc_prevents_chorus_jump():

@@ -11,7 +11,9 @@ Pure function, no file IO: ``karaoke/stages/align.py`` reads the job files and c
 3. Global DP (``dp.align``).
 4. Matched words take whisper timing. In each gap between two matched pairs, a lyric run and a
    whisper run that fill the same slot inside one line are paired as substitutions (whisper
-   misheard the word but timed it); everything else in the gap is unmatched.
+   misheard the word but timed it); everything else in the gap is unmatched. A gap spanning
+   several anchored lines is first cut per line by the LRC windows, so a whole misheard hook
+   ("nasceu" for every "no chão") still lends its beats to the words.
 5. Manual/AI words from the previous result are put back and act as fixed anchors.
 6. Untimed words: LRC line placement where trusted, otherwise ``interpolate.spread``.
 7. Monotonic, non-overlapping times with a minimum duration; line bounds; confidence; flags.
@@ -62,9 +64,18 @@ LRC_TOLERANCE = 1.0
 PENALTY_SLOPE = 2.0
 PENALTY_CAP = 8.0
 SUB_CONTIGUITY = 1.0  # a substituted whisper run must touch its same-line neighbours within this
+# A multi-line gap cut per line (see ``_beats_fit``): the heard words must start within this of the
+# line's LRC start, span this share of its window, and be at least this far apart.
+BEAT_START_SLACK = 0.6
+BEAT_MIN_COVER = 0.5
+BEAT_MIN_STEP = 0.1
 UNMATCHED_JOIN = 1.5  # unmatched whisper words closer than this form one unmatched_audio entry
 LONG_WORD_S = 3.0
-LRC_MIN_OFFSET = 0.5  # smaller median differences are whisper's own bias, not an LRC offset
+# The measured LRC offset is applied from this size up. Small offsets matter too: lines whisper
+# did not hear are placed from their LRC window, and the heard lines next to them show whisper's
+# clock. A synced LRC 0.16 s ahead of the voice made every unheard line light up early
+# ("Sequência Striptease"). Below this it is measurement noise.
+LRC_MIN_OFFSET = 0.05
 # Extra cost per unheard lyric word placed where whisper leaves no time for it (see dp.align).
 ROOM_COST = 0.3
 ROOM_FULL = 3.0  # seconds of silence between whisper words that make an unheard word free
@@ -382,46 +393,116 @@ def _substitutions(ops: list[dp.Op], words: list[_W], toks: list[WToken], anchor
     matched words of that same line (within ``SUB_CONTIGUITY``), and it lies in the LRC window.
     """
     used: set[int] = set()
-    for prev, nxt, lg, wg in _regions(ops):
-        if not lg or not wg:
+    for prev, nxt, lg_all, wg_all in _regions(ops):
+        if not lg_all or not wg_all:
             continue
-        line = words[lg[0]].line
-        if any(words[i].line != line for i in lg):
-            continue
-        k, m = len(lg), len(wg)
-        if abs(k - m) > max(1, k // 2):
-            continue
-        w0, w1 = toks[wg[0]], toks[wg[-1]]
-        checks = 0
-        ok = True
-        if prev is not None and words[prev].line == line and words[prev].end is not None:
-            checks += 1
-            ok &= w0.start - words[prev].end <= SUB_CONTIGUITY
-        if nxt is not None and words[nxt].line == line and words[nxt].start is not None:
-            checks += 1
-            ok &= words[nxt].start - w1.end <= SUB_CONTIGUITY
-        if line in anchors:
-            a = anchors[line]
-            ok &= w0.start >= a.start - LRC_TOLERANCE and w1.end <= a.end + LRC_TOLERANCE
-            checks += 1
-        if not ok or checks == 0:
-            continue
-        lw = [words[i] for i in lg]
-        if k == m:
-            for w, t in zip(lw, (toks[j] for j in wg), strict=True):
-                w.start, w.end, w.kind, w.prob = t.start, t.end, "sub", t.prob
-        else:
-            slots = place_from([natural_duration(w.text) for w in lw], w0.start, w1.end)
-            span = w1.end - w0.start
-            total = sum(s.end - s.start for s in slots) or 1.0
-            t = w0.start
-            prob = sum(toks[j].prob for j in wg) / m
-            for w, s in zip(lw, slots, strict=True):
-                d = (s.end - s.start) / total * span
-                w.start, w.end, w.kind, w.prob = t, t + d, "sub", prob
-                t += d
-        used.update(wg)
+        runs = _per_line(lg_all, wg_all, words, toks, anchors)
+        cut = len(runs) > 1
+        for lg, wg in runs:
+            if cut and not _beats_fit(wg, toks, anchors[words[lg[0]].line]):
+                continue
+            if _substitute(prev, nxt, lg, wg, words, toks, anchors):
+                used.update(wg)
     return used
+
+
+def _beats_fit(wg: list[int], toks: list[WToken], a: Anchor) -> bool:
+    """Whisper words cut out for one line of a multi-line gap are trusted as its beats only when
+    they look like the line being sung: they start near the line's (offset-corrected) LRC start,
+    fill a good part of its window, and are distinct beats. Whisper's junk on a chopped vocal
+    ("сигa nasionas" both at 133.95 s, a few words at the end of the window) fails this."""
+    if not wg:
+        return False
+    t = [toks[j] for j in wg]
+    width = a.end - a.start
+    if abs(t[0].start - a.start) > BEAT_START_SLACK:
+        return False
+    if width > 0 and (t[-1].end - t[0].start) < BEAT_MIN_COVER * width:
+        return False
+    return all(b.start - p.start >= BEAT_MIN_STEP for p, b in zip(t, t[1:], strict=False))
+
+
+def _per_line(lg: list[int], wg: list[int], words: list[_W], toks: list[WToken],
+              anchors: dict[int, Anchor]) -> list[tuple[list[int], list[int]]]:
+    """Cut a gap region into (lyric run, whisper run) per lyric line.
+
+    A region inside one line is returned whole. A region spanning several lines is cut only when
+    every line has an LRC anchor: each whisper word goes to the line whose window holds its
+    midpoint (or the nearest window), so the runs stay in time order.
+    """
+    lines: list[int] = []
+    for i in lg:
+        if not lines or lines[-1] != words[i].line:
+            lines.append(words[i].line)
+    if len(lines) == 1:
+        return [(lg, wg)]
+    if any(ln not in anchors for ln in lines):
+        return []
+
+    def dist(ln: int, t: float) -> float:
+        a = anchors[ln]
+        return 0.0 if a.start <= t < a.end else min(abs(t - a.start), abs(t - a.end))
+
+    by_line: dict[int, list[int]] = {ln: [] for ln in lines}
+    for j in wg:
+        mid = (toks[j].start + toks[j].end) / 2
+        by_line[min(lines, key=lambda ln: dist(ln, mid))].append(j)
+    return [([i for i in lg if words[i].line == ln], by_line[ln]) for ln in lines]
+
+
+def _substitute(prev: int | None, nxt: int | None, lg: list[int], wg: list[int], words: list[_W],
+                toks: list[WToken], anchors: dict[int, Anchor]) -> bool:
+    """Time one line's lyric run from the whisper run in the same slot; False when it does not fit."""
+    if not lg or not wg:
+        return False
+    line = words[lg[0]].line
+    k, m = len(lg), len(wg)
+    if abs(k - m) > max(1, k // 2):
+        return False
+    w0, w1 = toks[wg[0]], toks[wg[-1]]
+    checks = 0
+    ok = True
+    if prev is not None and words[prev].line == line and words[prev].end is not None:
+        checks += 1
+        ok &= w0.start - words[prev].end <= SUB_CONTIGUITY
+    if nxt is not None and words[nxt].line == line and words[nxt].start is not None:
+        checks += 1
+        ok &= words[nxt].start - w1.end <= SUB_CONTIGUITY
+    if line in anchors:
+        a = anchors[line]
+        ok &= w0.start >= a.start - LRC_TOLERANCE and w1.end <= a.end + LRC_TOLERANCE
+        checks += 1
+    if not ok or checks == 0:
+        return False
+    lw = [words[i] for i in lg]
+    if k == m:
+        for w, t in zip(lw, (toks[j] for j in wg), strict=True):
+            w.start, w.end, w.kind, w.prob = t.start, t.end, "sub", t.prob
+    elif k > m:
+        # More lyric words than heard words: each heard word is a beat ("nasceu" sung where the
+        # lyric has "no chão"). Share the beats out in order and split each beat between its words.
+        groups: list[list[_W]] = [[] for _ in range(m)]
+        for idx, w in enumerate(lw):
+            groups[idx * m // k].append(w)
+        for t, group in zip((toks[j] for j in wg), groups, strict=True):
+            durs = [natural_duration(w.text) for w in group]
+            total = sum(durs) or 1.0
+            s = t.start
+            for w, d in zip(group, durs, strict=True):
+                e = s + d / total * (t.end - t.start)
+                w.start, w.end, w.kind, w.prob = s, e, "sub", t.prob
+                s = e
+    else:
+        slots = place_from([natural_duration(w.text) for w in lw], w0.start, w1.end)
+        span = w1.end - w0.start
+        total = sum(s.end - s.start for s in slots) or 1.0
+        t0 = w0.start
+        prob = sum(toks[j].prob for j in wg) / m
+        for w, s in zip(lw, slots, strict=True):
+            d = (s.end - s.start) / total * span
+            w.start, w.end, w.kind, w.prob = t0, t0 + d, "sub", prob
+            t0 += d
+    return True
 
 
 def _interpolate(words: list[_W], anchors: dict[int, Anchor], duration: float | None) -> None:
