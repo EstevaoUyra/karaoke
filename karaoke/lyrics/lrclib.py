@@ -25,6 +25,11 @@ TIMEOUT = 20.0
 TRANSPORT: httpx.BaseTransport | None = None
 # A candidate's track name must be this similar (token_set_ratio on match tokens) to our title.
 MIN_TITLE_SIMILARITY = 80
+# When we know the artist, a candidate's artist must be this similar too, unless the candidate came
+# from a query naming the version (a cover's soundtrack, a riddim): a cover is sung by someone else.
+# Real variants score 100 ("Sergio Mendes + Brasil 66" / "Sérgio Mendes & Brasil '66", "Sacal" /
+# "Sacal, Pumpkilla"); another artist's song with the same title scores under 50.
+MIN_ARTIST_SIMILARITY = 80
 
 log = logging.getLogger(__name__)
 
@@ -152,11 +157,15 @@ def find_best(title: str, artist: str | None = None, duration: float | None = No
     seen: dict[int, LrclibRecord] = {}
     found_by: dict[int, str] = {}
 
-    def add(recs: Iterable[LrclibRecord], label: str) -> bool:
+    def add(recs: Iterable[LrclibRecord], label: str, check_artist: bool = True) -> bool:
         for r in recs:
             if r.id in seen:
                 continue
             if title_similarity(r.track_name, title) < MIN_TITLE_SIMILARITY:
+                continue
+            if check_artist and artist and title_similarity(r.artist_name, artist) < MIN_ARTIST_SIMILARITY:
+                log.info("lrclib: skipping #%s %r by %r: not our artist %r", r.id, r.track_name,
+                         r.artist_name, artist)
                 continue
             seen[r.id] = r
             found_by[r.id] = label
@@ -170,9 +179,10 @@ def find_best(title: str, artist: str | None = None, duration: float | None = No
             rec = get(client, title, artist, duration, album)
             done = add([rec] if rec else [], f"get artist={artist!r} title={title!r}")
         if not done:
+            versions = {f"{title} {e.strip()}" for e in extra if e and e.strip()}
             for q in queries(title, artist, extra):
                 label = "search " + " ".join(f"{k}={v!r}" for k, v in q.items())
-                if add(search(client, **q), label):
+                if add(search(client, **q), label, check_artist=q.get("q") not in versions):
                     break
     finally:
         if own:
