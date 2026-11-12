@@ -4,6 +4,7 @@ import { useServerEvent } from "../events";
 import { navigate, jobHref } from "../router";
 import { fmtTime, parseTime } from "../lib/time";
 import type { BackgroundDoc, Issue, JobDetail, SceneDoc } from "../types";
+import type { Structure } from "../types/generated/structure";
 
 const MOTIONS: SceneDoc["motion"][] = ["none", "kenburns-in", "kenburns-out", "pan-left", "pan-right"];
 const MOTION_LABEL: Record<SceneDoc["motion"], string> = {
@@ -17,9 +18,52 @@ function preview(id: string, s: SceneDoc): CSSProperties {
   else if (src.type === "gradient") {
     const [a, b] = (src.value ?? "#000,#000").split(",");
     st.background = `linear-gradient(180deg, ${a}, ${b ?? a})`;
+  } else if (src.type === "generated") {
+    const cols = (src.value ?? "").split(":")[1]?.split(",").filter(Boolean) ?? [];
+    st.background = `linear-gradient(120deg, ${(cols.length > 1 ? cols : ["#3a1c71", "#d76d77", "#1f6f8b"]).join(", ")})`;
+    st.filter = "brightness(0.55)";
   } else if (src.type === "image" && src.path) st.backgroundImage = `url("${fileUrl(id, src.path)}")`;
   else st.background = "#222";
   return st as CSSProperties;
+}
+
+const SECTION_LABEL: Record<Structure["sections"][number]["label"], string> = {
+  intro: "Intro", verse: "Verse", chorus: "Chorus", instrumental: "Instrumental", outro: "Outro",
+};
+
+/** The song's sections over the scenes, on one time axis: where the scene changes fall in the song. */
+function SongMap({ structure, bg }: { structure: Structure | null; bg: BackgroundDoc }) {
+  const total = bg.scenes[bg.scenes.length - 1].end || 1;
+  const row = { display: "flex", borderRadius: 6, overflow: "hidden" } as const;
+  const cell = (start: number, end: number): CSSProperties => ({
+    width: `${((end - start) / total) * 100}%`, padding: "0.15rem 0.3rem", fontSize: "0.72rem", whiteSpace: "nowrap",
+    overflow: "hidden", textOverflow: "ellipsis", boxSizing: "border-box", borderRight: "1px solid var(--panel)",
+  });
+  return (
+    <div className="panel" style={{ padding: "0.75rem", display: "grid", gap: "0.35rem" }} aria-label="Song map">
+      {structure ? (
+        <div style={row}>
+          {structure.sections.map((s) => (
+            <div key={s.start} title={`${SECTION_LABEL[s.label]}, ${fmtTime(s.start, 0)} to ${fmtTime(s.end, 0)}, loudness ${Math.round(s.energy * 100)}%`}
+              style={{ ...cell(s.start, s.end), color: "#fff", background: `rgba(6, 75, 105, ${0.3 + 0.7 * s.energy})` }}>
+              {SECTION_LABEL[s.label]}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className="faint">Run the Song structure step to see the song's sections here.</span>
+      )}
+      <div style={row}>
+        {bg.scenes.map((s) => (
+          <div key={s.id} title={`Scene ${s.id}, ${fmtTime(s.start, 0)} to ${fmtTime(s.end, 0)}`}
+            style={{ ...cell(s.start, s.end), background: "var(--sunk)" }}>
+            {s.id}{s.locked ? " (locked)" : ""}
+          </div>
+        ))}
+      </div>
+      <span className="faint">Top: the song's sections, darker where it is louder. Bottom: your scenes.</span>
+    </div>
+  );
 }
 
 /** Split scene k at its middle (the new scene copies it). */
@@ -52,6 +96,9 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [missing, setMissing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [presets, setPresets] = useState<Awaited<ReturnType<typeof api.backgroundPresets>> | null>(null);
+  const [busy, setBusy] = useState("");
+  const [structure, setStructure] = useState<Structure | null>(null);
 
   const load = () =>
     api.background(id).then((b) => {
@@ -61,7 +108,10 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
     }, (e) => e instanceof ApiError && e.status === 404 && setMissing(true));
   useEffect(() => {
     void load();
-  }, [id]);
+    api.backgroundPresets(id).then(setPresets, () => setPresets(null));
+    if (detail.files.structure) api.structure(id).then(setStructure, () => setStructure(null));
+    else setStructure(null);
+  }, [id, detail.files.structure?.mtime]);
   const dirty = bg !== null && JSON.stringify(bg) !== savedJson;
   useServerEvent((e) => {
     if (e.type === "files" && e.data.job_id === id && e.data.paths.includes("background.json") && !dirty) void load();
@@ -107,6 +157,25 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
     }
   }
 
+  async function applyPreset(name: string) {
+    if (dirty && !window.confirm("Replace the unsaved changes with this preset?")) return;
+    const locked = bg!.scenes.some((s) => s.locked);
+    if (locked && !window.confirm("This replaces every scene, including the locked ones. Continue?")) return;
+    setMsg(null);
+    setBusy(name);
+    try {
+      const r = await api.applyBackgroundPreset(id, name, locked);
+      setBg(r.background);
+      setSavedJson(JSON.stringify(r.background));
+      setIssues(r.issues);
+      setMsg({ kind: "ok", text: `Preset applied: ${r.background.scenes.length} scene(s). Render again to see it in the video.` });
+    } catch (e) {
+      setMsg({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy("");
+    }
+  }
+
   const cmd = `/karaoke-backgrounds ${id}`;
   return (
     <div style={{ display: "grid", gap: "1rem", maxWidth: 1000 }}>
@@ -117,12 +186,30 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
         <span className="spacer" />
         <span className="faint">{bg.scenes.length} scene{bg.scenes.length > 1 ? "s" : ""}, style {bg.style}</span>
       </div>
+      {presets && (
+        <div className="panel" style={{ display: "grid", gap: "0.5rem", padding: "0.9rem" }}>
+          <h3>Instant backgrounds</h3>
+          <p className="muted" style={{ fontSize: "0.9rem", margin: 0 }}>
+            Made from the song's own cover and video. Each one replaces every scene below.
+            {!presets.has_structure && " Run the Song structure step first to get a new scene for each section of the song."}
+          </p>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {presets.presets.map((p) => (
+              <button key={p.name} disabled={!p.available || busy !== ""} onClick={() => applyPreset(p.name)}
+                title={p.available ? p.label : `${p.label} (needs the original video or its thumbnail)`}>
+                {busy === p.name ? "Working…" : p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {msg && <p className={`notice ${msg.kind === "err" ? "err" : ""}`}>{msg.text}</p>}
       {issues.length > 0 && (
         <ul className="issues" style={{ margin: 0, paddingLeft: "1.2rem" }}>
           {issues.map((i, k) => <li key={k} className={i.severity === "error" ? "error-text" : "faint"}>{i.where}: {i.message}</li>)}
         </ul>
       )}
+      <SongMap structure={structure} bg={bg} />
       <div className="scenes">
         {bg.scenes.map((s, k) => (
           <div key={s.id} className="panel scene">
@@ -163,7 +250,9 @@ export function BackgroundTab({ detail }: { detail: JobDetail }) {
                   }}>
                     <option value="gradient">Gradient</option>
                     <option value="color">Colour</option>
-                    <option value="image" disabled={!s.source.path}>Image</option>
+                    <option value="image" disabled={!s.source.path || s.source.type === "video"}>Image</option>
+                    {s.source.type === "video" && <option value="video">Video</option>}
+                    {s.source.type === "generated" && <option value="generated">Moving colours</option>}
                   </select>
                 </label>
                 {s.source.type === "color" && (

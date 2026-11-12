@@ -61,7 +61,8 @@ def test_create_job_is_idempotent(store: JobStore):
 
 def test_select_stages():
     assert select_stages() == ORDER
-    assert select_stages(StageName.align) == [StageName.align, StageName.melody, StageName.backgrounds,
+    assert select_stages(StageName.align) == [StageName.align, StageName.melody, StageName.structure,
+                                              StageName.backgrounds,
                                               StageName.render]
     assert select_stages(only=[StageName.render, StageName.ingest]) == [StageName.ingest, StageName.render]
 

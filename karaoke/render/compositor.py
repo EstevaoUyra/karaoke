@@ -10,6 +10,9 @@ Each scene becomes a clip of an exact number of frames:
   visibly jitters even on a 2x pre-upscaled image (measured: per-frame motion std 0.023 vs 0.006,
   with backward steps). perspective costs ~40 % more CPU than zoompan.
 - ``video``: looped (``-stream_loop -1``), scaled and cropped to cover (motion works too).
+- ``generated``: moving colour that follows the music (``render.generated``), drawn small into the
+  workdir for exactly the scene's frames, then scaled up and softened. It reads the job's
+  ``structure.json`` if there is one.
 
 Then ``gblur`` (sigma given at 1080p, scaled to the output height) and ``drawbox`` (black at
 ``dim`` opacity). A ``fade`` transition into scene *i* is an ``xfade`` centred on the scene
@@ -178,6 +181,7 @@ def build_graph(
     duration: float | None = None,
     fps: int | None = None,
     input_offset: int = 0,
+    ffmpeg_bin: str | None = None,
 ) -> BgGraph:
     """Build the background filtergraph.
 
@@ -197,6 +201,7 @@ def build_graph(
     scenes = sorted(bg.scenes, key=lambda s: s.start)
     clips = _snap_clips(scenes, fps, total)
 
+    structure = None  # read once, only if a generated scene needs it
     inputs: list[list[str]] = []
     files: list[Path] = []
     chains: list[str] = []
@@ -235,6 +240,26 @@ def build_graph(
             if sc.motion != "none":
                 steps.append(_motion_filter(sc.motion, n))
             steps.append(f"tpad=stop_mode=clone:stop_duration={secs}")
+        elif src.type == "generated":
+            from karaoke.render.generated import render_clip
+
+            if structure is None:
+                from karaoke.models import Structure
+                from karaoke.store import JobPaths, read_model_opt
+
+                structure = read_model_opt(JobPaths(root).structure, Structure) or False
+            if ffmpeg_bin is None:
+                from karaoke.config import get_settings
+
+                ffmpeg_bin = get_settings().ffmpeg_bin
+            clip = render_clip(_need(src, "value", sc), fps, c.lo, c.hi, structure or None, total / fps,
+                               workdir / f"bg_{i:02d}_{sc.id}_generated.mp4", ffmpeg_bin)
+            files.append(clip)
+            k = add_input(["-i", str(clip)])
+            head = f"[{k}:v]"
+            # bicubic upscale of a soft picture, then a blur that removes the scaling steps
+            steps = [f"scale={W}:{H}:flags=bicubic", f"gblur=sigma={H / 60:.2f}",
+                     f"tpad=stop_mode=clone:stop_duration={secs}"]
         else:  # pragma: no cover — the model's Literal forbids it
             raise ValueError(f"unknown source type {src.type!r}")
         steps += _effects(sc, size)
@@ -299,7 +324,7 @@ def render_background(
     from karaoke.render.ffmpeg import run_ffmpeg
 
     with tempfile.TemporaryDirectory(prefix="karaoke-bg-") as tmp:
-        g = build_graph(bg, root, Path(tmp), size=size, duration=duration)
+        g = build_graph(bg, root, Path(tmp), size=size, duration=duration, ffmpeg_bin=ffmpeg_bin)
         args = ["-y", *g.input_args, "-filter_complex", g.filter, "-map", f"[{g.label}]",
                 "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
                 "-frames:v", str(g.frames), "-r", str(g.fps), str(out)]

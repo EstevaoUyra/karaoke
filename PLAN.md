@@ -57,7 +57,18 @@ YouTube URL
             voicing prior; key (Krumhansl–Schmuckler: notes + instrumental + mix chroma) → melody.json
                 │
                 ▼
+[5c structure] librosa on audio.wav + the synced lines → structure.json: sections (intro / verse /
+            chorus / instrumental / outro, each with loudness and sung share), a loudness curve
+            and beats. Boundaries: long pauses between lines, then peaks of audio novelty;
+            never inside a sung line. Labels are a guess, for pacing scenes only.
+                │
+                ▼
 [6 backgrounds] default: background.json with 1 scene (solid colour / gradient / single image)
+     (optional) instant presets (`karaoke background <job> <preset>`, Background tab), one scene
+                per section: palette (gradients in the cover's colours), cover (blurred
+                thumbnail), stills (frames of the source video), video (the source video, blurred),
+                aurora (a `generated` scene: moving colour that follows loudness, beats and
+                sections, drawn with numpy in `render/generated.py`)
      (optional) AI skill: karaoke-backgrounds ── art-directed scene timeline + images
      (optional) UI: replace or lock any scene (upload / URL / web search)
                 │
@@ -89,6 +100,7 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
   lyrics.final.json                 # ← the important one
   melody.json                       # sung notes + key, for the optional pitch guide (render.show_pitch)
   cache/melody.f0.npz               # raw pyin contour, reused while vocals.wav is unchanged
+  structure.json                    # sections, loudness curve, beats (for backgrounds)
   background.json
   assets/bg/*.jpg                   # downloaded/uploaded images + credits.json
   output/karaoke.ass  output/preview.mp4  output/karaoke.mp4
@@ -204,7 +216,7 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
 4. **Background**:
    - A scene timeline over the waveform and section markers.
    - Per scene: replace (upload / URL / web image search), lock, set duration/motion/dim.
-   - Presets: solid colour, gradient, blurred thumbnail, single image.
+   - Instant presets (`karaoke/bg_presets.py`): gradient, palette, cover, stills, video, aurora. Each replaces every scene; locked scenes need a confirmation.
    - An **"AI art direction"** button.
 5. **Render**: resolution, font/colours, guide-vocal level, then render, play and download.
 

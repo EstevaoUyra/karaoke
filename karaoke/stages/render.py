@@ -150,7 +150,7 @@ def run(ctx: StageContext) -> None:
         # escaping of arbitrary job paths.
         shutil.copyfile(p.ass, work / "karaoke.ass")
         ctx.progress(0.02, "preparing background")
-        g = build_graph(bg, p.root, work, size=size, duration=duration)
+        g = build_graph(bg, p.root, work, size=size, duration=duration, ffmpeg_bin=ffmpeg_bin)
         part = out.with_name(f".{out.name}.part")
         args = build_command(
             bg_inputs=g.input_args, bg_filter=g.filter, frames=g.frames, fps=g.fps, ass_name="karaoke.ass",

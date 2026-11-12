@@ -8,7 +8,8 @@
             "color",
             "gradient",
             "image",
-            "video"
+            "video",
+            "generated"
           ],
           "title": "Type",
           "type": "string"

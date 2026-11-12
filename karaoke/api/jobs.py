@@ -108,6 +108,7 @@ def get_job(request: Request, job_id: str) -> dict:
             "user_lyrics": _file_info(p.lyrics_source("user.txt")),
             "review_notes": _file_info(p.review_notes),
             "melody": _file_info(p.melody),
+            "structure": _file_info(p.structure),
         },
         "issues": [issue_dict(i) for i in validate_job(p)],
     }

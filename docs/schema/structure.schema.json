@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "Section": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "label": {
+          "enum": [
+            "intro",
+            "verse",
+            "chorus",
+            "instrumental",
+            "outro"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "energy": {
+          "title": "Energy",
+          "type": "number"
+        },
+        "vocal": {
+          "title": "Vocal",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "label",
+        "energy",
+        "vocal"
+      ],
+      "title": "Section",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "structure.json: the song's sections, loudness curve and beats (from the mix and the lyrics).",
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "duration": {
+      "title": "Duration",
+      "type": "number"
+    },
+    "tempo_bpm": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tempo Bpm"
+    },
+    "beats": {
+      "items": {
+        "type": "number"
+      },
+      "title": "Beats",
+      "type": "array"
+    },
+    "energy_hop_s": {
+      "default": 0.5,
+      "title": "Energy Hop S",
+      "type": "number"
+    },
+    "energy": {
+      "items": {
+        "type": "number"
+      },
+      "title": "Energy",
+      "type": "array"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/Section"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "duration",
+    "sections"
+  ],
+  "title": "Structure",
+  "type": "object"
+}

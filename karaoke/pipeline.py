@@ -138,6 +138,14 @@ STAGES: list[StageSpec] = [
         isolated=True,  # torchcrepe imports torch: never in a process with ctranslate2
     ),
     StageSpec(
+        StageName.structure,
+        # Sections, loudness and beats of the mix; the lyrics place boundaries between lines and
+        # tell sung sections from instrumental ones. librosa only (no torch): runs in-process.
+        inputs=lambda p: [p.audio, p.lyrics_final],
+        outputs=lambda p, j: [p.structure],
+        settings=lambda j, s: {"method": 1},  # bumped when the algorithm changes
+    ),
+    StageSpec(
         StageName.backgrounds,
         # Only creates the default background.json if none exists (never overwrites user/AI work).
         inputs=lambda p: [p.meta],
@@ -145,8 +153,9 @@ STAGES: list[StageSpec] = [
     ),
     StageSpec(
         StageName.render,
+        # structure.json drives generated backgrounds
         inputs=lambda p: [p.instrumental, p.vocals, p.lyrics_final, p.background, p.bg_assets_dir, p.meta,
-                          p.melody],
+                          p.melody, p.structure],
         outputs=_render_output,
         settings=lambda j, s: j.settings.render.model_dump(),
     ),

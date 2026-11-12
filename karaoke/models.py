@@ -32,6 +32,7 @@ class StageName(StrEnum):
     transcribe = "transcribe"
     align = "align"
     melody = "melody"  # sung melody + key for the pitch guide (after align: uses word timings)
+    structure = "structure"  # sections, energy and beats, for backgrounds that follow the song
     backgrounds = "backgrounds"
     render = "render"
 
@@ -241,8 +242,10 @@ class LyricsFinal(_Model):
 
 
 class BgSource(_Model):
-    type: Literal["color", "gradient", "image", "video"]
-    value: str | None = None  # color: "#101018"; gradient: "#000000,#203040" (top→bottom)
+    type: Literal["color", "gradient", "image", "video", "generated"]
+    # color: "#101018"; gradient: "#000000,#203040" (top→bottom);
+    # generated: "<style>:<colours>", e.g. "aurora:#3a1c71,#d76d77" (render.generated)
+    value: str | None = None
     path: str | None = None  # image/video: relative to job dir, e.g. "assets/bg/s1.jpg"
     origin: str | None = None  # "upload", "wikimedia", "pexels", "unsplash", "web", "thumbnail", ...
     url: str | None = None  # where it was fetched from
@@ -315,6 +318,33 @@ class Melody(_Model):
     updated_at: datetime = Field(default_factory=now)
 
 
+# --------------------------------------------------------------------------- structure.json
+
+
+class Section(_Model):
+    start: float
+    end: float
+    # "chorus" = sung, lines repeated elsewhere in the song, at least as loud as the typical sung
+    # section. A guess from lyrics and audio: good for pacing scenes, not for printing on screen.
+    label: Literal["intro", "verse", "chorus", "instrumental", "outro"]
+    energy: float  # 0..1: loudness of the section relative to the song's quietest and loudest parts
+    vocal: float  # 0..1: share of the section covered by sung lines
+
+
+class Structure(_Model):
+    """structure.json: the song's sections, loudness curve and beats (from the mix and the lyrics)."""
+
+    version: Literal[1] = 1
+    duration: float
+    tempo_bpm: float | None = None
+    beats: list[float] = Field(default_factory=list)  # beat times in seconds
+    energy_hop_s: float = 0.5
+    energy: list[float] = Field(default_factory=list)  # 0..1 loudness, one value per energy_hop_s
+    sections: list[Section]
+    params: dict[str, float | int | str | bool] = Field(default_factory=dict)
+    updated_at: datetime = Field(default_factory=now)
+
+
 # --------------------------------------------------------------------------- export
 
 
@@ -326,4 +356,5 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "lyrics_final": LyricsFinal,
     "background": Background,
     "melody": Melody,
+    "structure": Structure,
 }
