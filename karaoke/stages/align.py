@@ -68,7 +68,7 @@ def run(ctx: StageContext) -> None:
     lf, stats = align_lyrics(
         lines, transcript, lrc=lrc, use_line_timings=bool(choice.use_line_timings and lrc),
         duration=meta.duration if meta else None,
-        language=choice.language or (transcript.language if transcript.language in ("pt", "en") else None),
+        language=choice.language or (transcript.language if transcript.language in ("pt", "en", "ja") else None),
         text_source=source, previous=previous, envelope=envelope,
     )
     for issue in validate_lyrics(lf, meta.duration if meta else None):

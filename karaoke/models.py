@@ -81,7 +81,7 @@ class RenderSettings(_Model):
 class JobSettings(_Model):
     quality: Quality = Quality.fast
     separator_model: str | None = None  # None → config default for the quality
-    language: Literal["pt", "en"] | None = None  # None → detect
+    language: Literal["pt", "en", "ja"] | None = None  # None → detect (pt/en only; "ja" must be set)
     lyrics_source: str | None = None  # force a source name (see LyricsSourceName)
     render: RenderSettings = Field(default_factory=RenderSettings)
 

@@ -206,11 +206,18 @@ def align_lyrics(
 ) -> tuple[LyricsFinal, AlignStats]:
     """``envelope`` (the vocal stem's loudness) lets pauses be cut out of words, see ``voicing``."""
     stats = AlignStats()
-    toks = whisper_tokens(transcript)
+    japanese = transcript.language == "ja" and text_source != LyricsSourceName.whisper and bool(lines)
+    if japanese:  # whisper heard kana/kanji, the lyrics are romaji: compare romaji words
+        from karaoke.align.japanese import romaji_key, romaji_tokens
+
+        toks = romaji_tokens(transcript)
+    else:
+        toks = whisper_tokens(transcript)
     if text_source == LyricsSourceName.whisper or not lines:
         return _whisper_fallback(toks, duration, language, previous, stats, envelope)
 
-    words = [_W(line=ln.index, stanza=ln.stanza, pos=k, text=t, key=match_key(t))
+    words = [_W(line=ln.index, stanza=ln.stanza, pos=k, text=t,
+                key=romaji_key(match_key(t)) if japanese else match_key(t))
              for ln in lines for k, t in enumerate(ln.words)]
     keys = [w.key for w in words]
     toks, looped = drop_hallucination_loops(toks, keys)

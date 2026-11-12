@@ -24,7 +24,8 @@
             {
               "enum": [
                 "pt",
-                "en"
+                "en",
+                "ja"
               ],
               "type": "string"
             },

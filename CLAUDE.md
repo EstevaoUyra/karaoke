@@ -32,3 +32,6 @@ The plan and architecture are in `PLAN.md`; read it first. Benchmark findings ar
 
 ## Languages
 Songs are PT-BR and EN. Never trust YouTube's `language` field (it reports `fr` for a Brazilian song).
+Japanese works too, but only when set by hand (`job.settings.language = "ja"`; detection stays pt/en):
+the lyrics must be romaji (put them in `lyrics/sources/user.txt`), whisper transcribes in Japanese, and
+`karaoke/align/japanese.py` turns what it heard into romaji words (fugashi + cutlet) before aligning.
