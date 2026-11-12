@@ -90,6 +90,18 @@
           "default": 1.0,
           "title": "Conf",
           "type": "number"
+        },
+        "syllable": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Syllable"
         }
       },
       "required": [
@@ -100,16 +112,62 @@
       ],
       "title": "Note",
       "type": "object"
+    },
+    "Syllable": {
+      "additionalProperties": false,
+      "description": "A written syllable and its estimated sung span inside one lyric word.",
+      "properties": {
+        "line_id": {
+          "title": "Line Id",
+          "type": "string"
+        },
+        "word_index": {
+          "minimum": 0,
+          "title": "Word Index",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        }
+      },
+      "required": [
+        "line_id",
+        "word_index",
+        "text",
+        "start",
+        "end"
+      ],
+      "title": "Syllable",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "melody.json: the sung melody of the vocal stem as notes, plus the song's key.",
   "properties": {
     "version": {
-      "const": 1,
-      "default": 1,
+      "default": 2,
+      "enum": [
+        1,
+        2
+      ],
       "title": "Version",
       "type": "integer"
+    },
+    "syllables": {
+      "items": {
+        "$ref": "#/$defs/Syllable"
+      },
+      "title": "Syllables",
+      "type": "array"
     },
     "hop_s": {
       "title": "Hop S",

@@ -53,8 +53,9 @@ YouTube URL
      (optional) AI skill: karaoke-lyrics-review  ── edits lyrics.final.json
                 │
                 ▼
-[5b melody] torchcrepe-tiny f0 on vocals.wav (pyin fallback) → notes, with the sung words as a
-            voicing prior; key (Krumhansl–Schmuckler: notes + instrumental + mix chroma) → melody.json
+[5b melody] torchcrepe-tiny pitch activation on vocals.wav (pyin fallback) → interval-prior path
+            constrained to inferred lyric syllables (method 5; see docs/melody-decoder.md);
+            key (Krumhansl–Schmuckler: notes + instrumental + mix chroma) → melody.json
                 │
                 ▼
 [5c structure] librosa on audio.wav + the synced lines → structure.json: sections (intro / verse /
@@ -101,8 +102,8 @@ data/jobs/<job_id>/                 # job_id = the YouTube video id (re-adding t
   lyrics/chosen.txt                 # canonical text used for alignment (+ which source)
   transcript.whisper.json           # segments + words {text,start,end,prob}
   lyrics.final.json                 # ← the important one
-  melody.json                       # sung notes + key, for the optional pitch guide (render.show_pitch)
-  cache/melody.f0.npz               # raw pyin contour, reused while vocals.wav is unchanged
+  melody.json                       # v2: sung notes + syllable links/spans + key (v1 remains readable)
+  cache/melody.f0.npz               # v3: activation + bin0 + f0/conf, keyed by stem hash/tracker
   structure.json                    # sections, loudness curve, beats (for backgrounds)
   background.json
   assets/bg/*.jpg                   # downloaded/uploaded images + credits.json
@@ -373,3 +374,10 @@ Quality presets, duet/multi-singer colours, a renders gallery, a README with set
    - PT-BR: `https://www.youtube.com/watch?v=f8x_t8wPFcM`, *Sacal – Vão Querer Me Internar*. It has fast dancehall vocals, no manual subs and may not be on LRCLIB, so it is the hardest case for alignment and AI review.
    - Playlist parameters (`&list=…`) are always stripped (`--no-playlist`).
 6. **AI skills:** `claude -p` works on the subscription, so the UI keeps a one-click option. Interactive sessions are the primary path, and skill testing is done by subagents (§6).
+
+### Melody method 5 review (2026-11-11)
+
+See [the decoder report](docs/melody-decoder.md) for the explicit model/cache contract changes,
+syllable invariants, benchmark trade-offs and critical reference audit. All inferred syllables
+receive pitches, but full-song reference agreement declines; this is not an unconditional
+accuracy upgrade. The references include uncertain timing, octave and vocal-line choices.

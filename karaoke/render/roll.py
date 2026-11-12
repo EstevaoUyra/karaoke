@@ -173,9 +173,9 @@ def roll_notes(melody: Melody, lo: int, hi: int, min_conf: float = 0.0, contour:
         nxt = kept[i + 1] if i + 1 < len(kept) else None
         steady = steadiness(contour, n.start, n.end, n.midi + melody.tuning) if contour is not None else 1.0
         out.append(RollNote(n.start, n.end, n.midi,
-                            prev is not None and prev.midi == n.midi and n.start - prev.end < JOIN_S,
-                            nxt is not None and nxt.midi == n.midi and nxt.start - n.end < JOIN_S, steady,
-                            n.conf >= floor))
+                            prev is not None and prev.midi == n.midi and 0 <= n.start - prev.end < JOIN_S,
+                            nxt is not None and nxt.midi == n.midi and 0 <= nxt.start - n.end < JOIN_S, steady,
+                            n.conf >= floor and n.conf > 0))
     return out
 
 
@@ -254,6 +254,8 @@ def pitch_events(melody: Melody, rs: RenderSettings, resolution: tuple[int, int]
     ev: list = []
 
     words = [w for ln in lyrics.lines for w in ln.words if w.text.strip()] if lyrics is not None else []
+    if melody.syllables:
+        words = list(melody.syllables)
     words.sort(key=lambda w: w.start)
 
     def static(a: int, b: int, layer: int, name: str, tags: str, body: str, pos: str = "\\an7\\pos(0,0)") -> None:
@@ -308,7 +310,7 @@ def pitch_events(melody: Melody, rs: RenderSettings, resolution: tuple[int, int]
         move = f"\\an7\\move({xa:.1f},0,{xb:.1f},0,0,{(b - a) * 10}){fade}"
         left = slit if n.join_left else 0.0
         right = (n.end - n.start) * v - (slit if n.join_right else 0.0)
-        if not n.join_right:
+        if not n.join_right and not melody.syllables:
             right = max(right, left + bh)
         y = L.y(n.midi)
         bar = _bar(left, y - bh / 2, max(right, left + 1.0), y + bh / 2, not n.join_left, not n.join_right)

@@ -1,5 +1,5 @@
 """Score the note-making (karaoke.melody.notes.segment) on vocadito: 40 solo-voice clips with
-exact, human-made notes by two annotators. The cleanest measure we have of tracker + note-making,
+human note annotations by two annotators. A controlled measure of tracker + note-making agreement,
 with no separation and no lyrics involved.
 
     uv run python spikes/score_vocadito.py [--tracker crepe-tiny]
@@ -9,7 +9,7 @@ https://zenodo.org/records/5578807, CC BY 4.0). Contours are cached in ``data/go
 Imports torch for the CREPE trackers: run it on its own.
 
 Annotator A1 is the reference. The first row scores annotator A2 against A1 with the same
-measures: that is how far two careful people agree, so it is the ceiling.
+measures: context for annotation disagreement, not an accuracy ceiling.
 
 Columns (means over the 40 clips):
 - ``found``: share of reference notes during which we have a note.
@@ -122,11 +122,11 @@ def frame_accuracy(i: int, tracker: str) -> float:
     return float(np.sum(cents <= 0.5) / max(1, sung.sum()))
 
 
-def score(get) -> dict[str, float]:
+def score(get, annotator: str = "A1") -> dict[str, float]:
     names = ("found", "pitch", "label", "on_F", "note_P", "note_R", "note_F", "notes")
     cols: dict[str, list[float]] = {k: [] for k in names}
     for i in CLIPS:
-        ref = reference(i)
+        ref = reference(i, annotator)
         frac, lab = get(i)
         found, pitch = at_note(ref, frac)
         p, r, f = match(ref, frac, 0.05, 0.5)
@@ -143,7 +143,7 @@ def main() -> None:
     if not V.exists():
         raise SystemExit(f"vocadito is not at {V}: see data/gold/README.md")
     rows = {
-        "annotator A2 (ceiling)": score(lambda i: (reference(i, "A2"),) * 2),
+        "annotator A2 vs A1": score(lambda i: (reference(i, "A2"),) * 2),
         f"ours ({args.tracker})": score(lambda i: our_notes(i, args.tracker)),
     }
     head = list(next(iter(rows.values())))

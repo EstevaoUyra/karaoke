@@ -62,6 +62,50 @@ def pyin_track(signal: np.ndarray, sr: int, progress: Progress = None) -> tuple[
     return f0, prob, PITCH_HOP_S
 
 
+CREPE_BINS = 360
+CREPE_BIN_ST = 0.2  # CREPE's pitch bins are 20 cents apart
+CREPE_BIN0_MIDI = 69.0 + (1997.3794084376191 - 1200.0 * np.log2(44.0)) / 100.0  # bin 0 in MIDI (23.46)
+
+
+def bin_to_midi(b):
+    """Fractional MIDI of CREPE pitch bin ``b`` (may be fractional or an array)."""
+    return CREPE_BIN0_MIDI + CREPE_BIN_ST * np.asarray(b, dtype=float)
+
+
+def midi_to_bin(m):
+    return (np.asarray(m, dtype=float) - CREPE_BIN0_MIDI) / CREPE_BIN_ST
+
+
+def crepe_activation(signal: np.ndarray, sr: int, model: str = "full", hop_s: float = 0.01,
+                     progress: Progress = None, batch_size: int = 512) -> tuple[np.ndarray, int, float]:
+    """CREPE's whole output, before any pitch is chosen: ``(act, bin0, hop seconds)``.
+
+    ``act[t, k]`` (float32, 0..1) is the network's activation for pitch bin ``bin0 + k`` in frame
+    ``t`` (centred on ``t * hop``): one independent sigmoid per bin, not a distribution that sums
+    to one. Only the bins between ``FMIN`` and ``FMAX`` are kept. ``bin_to_midi`` gives a bin's
+    pitch. Imports torch (see the module docstring)."""
+    import torch
+    import torchcrepe
+
+    y = _resample(signal, sr).astype(np.float32)
+    hop = int(round(hop_s * SR))
+    lo = int(np.floor(midi_to_bin(69.0 + 12.0 * np.log2(FMIN / 440.0))))
+    hi = int(np.ceil(midi_to_bin(69.0 + 12.0 * np.log2(FMAX / 440.0)))) + 1
+    lo, hi = max(0, lo), min(CREPE_BINS, hi)
+    n_frames = 1 + len(y) // hop
+    act = np.zeros((n_frames, hi - lo), dtype=np.float32)
+    done = 0
+    with torch.inference_mode():
+        for frames in torchcrepe.preprocess(torch.from_numpy(y)[None], SR, hop, batch_size, "cpu", True):
+            out = torchcrepe.infer(frames, model, "cpu").numpy()
+            k = min(len(out), n_frames - done)
+            act[done:done + k] = out[:k, lo:hi]
+            done += k
+            if progress:
+                progress(done / n_frames)
+    return act, lo, hop / SR
+
+
 def crepe_track(signal: np.ndarray, sr: int, model: str = "full", hop_s: float = 0.01,
                 progress: Progress = None, batch_size: int = 256) -> tuple[np.ndarray, np.ndarray, float]:
     import torch

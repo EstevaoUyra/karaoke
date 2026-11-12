@@ -144,3 +144,18 @@ def test_notes_the_tracker_doubted_are_faint():
     m.params["tracker"] = "crepe-tiny"
     ev = events(m)
     assert [e.name for e in ev if e.name in ("pitch-note", "pitch-faint")] == ["pitch-note", "pitch-faint"]
+
+
+def test_explicit_syllables_drive_the_rail_and_uncertain_pyin_is_faint():
+    from karaoke.models import Syllable
+
+    m = melody([(1, 1.5, 67), (1.5, 2, 67)])
+    m.syllables = [Syllable(line_id='l1', word_index=0, text=t, start=s, end=e)
+                   for t, s, e in [('hel', 1, 1.5), ('lo', 1.5, 2)]]
+    for i, n in enumerate(m.notes):
+        n.syllable = i
+    m.notes[1].conf = 0
+    m.params['tracker'] = 'pyin'
+    ev = events(m)
+    assert [e.text.rsplit('}', 1)[-1] for e in named(ev, 'pitch-word')] == ['hel', 'lo']
+    assert len(named(ev, 'pitch-faint')) == 1

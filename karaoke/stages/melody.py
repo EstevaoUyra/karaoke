@@ -8,7 +8,9 @@ optional), ``lyrics.final.json`` (word timings, optional). Output: ``melody.json
    fails. The contour is cached in ``cache/melody.f0.npz`` by the stem's hash and the tracker, so
    re-segmenting after a lyrics edit takes a second. CREPE imports torch, so this stage runs in a
    child process (``isolated=True``): torch must never share a process with ctranslate2.
-2. ``karaoke.melody.notes.segment`` with the tracker's thresholds and the words as a prior.
+2. Full pitch activation and an interval-prior Viterbi path, constrained to inferred syllables
+   inside lyric words. Without lyrics, free note/rest decoding. CREPE activation is retained
+   in the contour cache; pyin supplies a one-peak approximation.
 3. Key: Krumhansl–Schmuckler (``karaoke.melody.theory``), the correlations of three votes
    averaged: the notes' pitch classes (duration x confidence), the instrumental's chroma (the
    harmony is a steadier cue than a melody, and rap has hardly any melody) and the full mix's.
@@ -24,16 +26,25 @@ from karaoke.pipeline import StageContext
 CHROMA_SR = 22050
 CHROMA_MAX_S = 600.0
 KEY_VOTES = {"vocal": 1.0, "instrumental": 1.0, "mix": 1.0}
-TRACK_VERSION = 2  # bump when a tracker changes: invalidates cache/melody.f0.npz
+TRACK_VERSION = 3  # bump when a tracker changes: invalidates cache/melody.f0.npz
 
 
-def pitch_track(signal: np.ndarray, sr: int, tracker: str, progress=None) -> tuple[np.ndarray, np.ndarray, float]:
-    """(f0 Hz, confidence, hop seconds) with ``tracker`` ("crepe-full", "crepe-tiny" or "pyin")."""
-    from karaoke.melody.track import crepe_track, pyin_track
+def pitch_track(signal: np.ndarray, sr: int, tracker: str, progress=None):
+    """(f0, confidence, hop seconds, activation, bin0), without discarding pitch alternatives."""
+    from karaoke.melody.decode import activation_from_contour, peak_pitch
+    from karaoke.melody.track import crepe_activation, pyin_track
 
     if tracker.startswith("crepe-"):
-        return crepe_track(signal, sr, model=tracker.split("-", 1)[1], progress=progress)
-    return pyin_track(signal, sr, progress=progress)
+        act, bin0, hop = crepe_activation(signal, sr, model=tracker.split("-", 1)[1], progress=progress)
+        # Decode the same quantised evidence on the first run and all cache hits.
+        act = np.round(np.clip(act, 0, 1) * 255).astype(np.uint8).astype(np.float32) / 255
+        midi, conf = peak_pitch(act, bin0)
+        f0 = np.where(conf >= 0.12, 440 * 2 ** ((midi - 69) / 12), np.nan)
+    else:
+        f0, conf, hop = pyin_track(signal, sr, progress=progress)
+        act, bin0 = activation_from_contour(f0, conf)
+        act = np.round(np.clip(act, 0, 1) * 255).astype(np.uint8).astype(np.float32) / 255
+    return f0, conf, hop, act, bin0
 
 
 def audio_chroma(path) -> np.ndarray | None:
@@ -63,7 +74,7 @@ def weighted_median(values: list[float], weights: list[float]) -> float:
     return float(v[np.searchsorted(c, c[-1] / 2)])
 
 
-def _contour(ctx: StageContext, signal: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray, float, str]:
+def _contour(ctx: StageContext, signal: np.ndarray, sr: int):
     from karaoke.store import file_hash
 
     p = ctx.paths
@@ -71,39 +82,41 @@ def _contour(ctx: StageContext, signal: np.ndarray, sr: int) -> tuple[np.ndarray
     vhash = file_hash(p.vocals)
     if p.melody_f0.exists():  # valid whatever --force says: keyed by the stem's hash and tracker
         try:
-            z = np.load(p.melody_f0)
+            with np.load(p.melody_f0) as cache:
+                z = {k: cache[k] for k in cache.files}
             if (str(z["vocals_hash"]) == vhash and int(z["version"]) == TRACK_VERSION
                     and str(z["tracker"]) == tracker):
                 ctx.log.info("pitch contour from cache (%s, %s)", p.rel(p.melody_f0), tracker)
-                return z["f0"], z["conf"], float(z["hop_s"]), tracker
+                return z["f0"], z["conf"], float(z["hop_s"]), tracker, z["act"].astype(np.float32) / 255, int(z["bin0"])
         except Exception as exc:  # noqa: BLE001 — a broken or old cache is recomputed
             ctx.log.info("not using %s: %s", p.rel(p.melody_f0), exc)
     used = tracker
     msg = f"tracking pitch ({tracker})"
     ctx.progress(0.02, msg)
     try:
-        f0, conf, hop_s = pitch_track(signal, sr, tracker, lambda f: ctx.progress(0.02 + 0.8 * f, msg))
+        f0, conf, hop_s, act, bin0 = pitch_track(signal, sr, tracker, lambda f: ctx.progress(0.02 + 0.8 * f, msg))
     except Exception as exc:
         if tracker == "pyin":
             raise
         ctx.log.warning("%s failed (%s); falling back to pyin", tracker, exc)
         used, msg = "pyin", "tracking pitch (pyin fallback)"
-        f0, conf, hop_s = pitch_track(signal, sr, "pyin", lambda f: ctx.progress(0.02 + 0.8 * f, msg))
+        f0, conf, hop_s, act, bin0 = pitch_track(signal, sr, "pyin", lambda f: ctx.progress(0.02 + 0.8 * f, msg))
     p.melody_f0.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.melody_f0.with_name(".melody.f0.tmp.npz")
     if used == tracker:  # a fallback contour is not cached under the requested tracker
         np.savez_compressed(tmp, f0=f0, conf=conf, hop_s=hop_s, vocals_hash=vhash, version=TRACK_VERSION,
-                            tracker=tracker)
+                            tracker=tracker, act=np.round(act * 255).astype(np.uint8), bin0=bin0)
         tmp.replace(p.melody_f0)
-    return f0, conf, hop_s, used
+    return f0, conf, hop_s, used, act, bin0
 
 
 def run(ctx: StageContext) -> None:
     from karaoke.audio import read_mono
-    from karaoke.melody.pipeline import notes_from_contour
+    from karaoke.melody.pipeline import decode_job, frame_db
     from karaoke.melody.theory import detect_key, display_shift, pc_histogram
-    from karaoke.models import KeyEstimate, Melody, Note
-    from karaoke.store import write_model
+    from karaoke.models import KeyEstimate, LyricsFinal, Melody, Note
+    from karaoke.store import read_model_opt, write_model
+    from karaoke.validate import validate_melody
 
     p = ctx.paths
     if not p.vocals.exists():
@@ -111,11 +124,13 @@ def run(ctx: StageContext) -> None:
 
     ctx.progress(0.01, "reading the vocal stem")
     signal, sr = read_mono(p.vocals)
-    f0, conf, hop_s, tracker = _contour(ctx, signal, sr)
+    f0, conf, hop_s, tracker, act, bin0 = _contour(ctx, signal, sr)
 
     ctx.progress(0.85, "segmenting notes")
-    raw, tuning = notes_from_contour(p, f0, conf, hop_s, tracker, signal=(signal, sr))
-    notes = [Note(start=n.start, end=n.end, midi=n.midi, pitch=n.pitch, conf=n.conf) for n in raw]
+    lyrics = read_model_opt(p.lyrics_final, LyricsFinal)
+    decoded = decode_job(act, bin0, hop_s, frame_db(signal, sr, hop_s, len(act)), lyrics, syllables=True)
+    tuning = decoded.tuning
+    notes = [n if isinstance(n, Note) else Note(**vars(n)) for n in decoded.notes]
 
     ctx.progress(0.9, "estimating the key")
     hist = pc_histogram([(n.midi, (n.end - n.start) * n.conf) for n in notes])
@@ -130,7 +145,8 @@ def run(ctx: StageContext) -> None:
     names = list(votes)
     res = detect_key(*(votes[k] for k in names), factors=[KEY_VOTES[k] for k in names])
     params: dict[str, float | int | str | bool] = {
-        "tracker": tracker, "words": p.lyrics_final.exists(),
+        "tracker": tracker, "words": p.lyrics_final.exists(), "syllables": bool(decoded.syllables),
+        "decoder": "interval-viterbi", "method": 5,
         "chroma": votes["instrumental"] is not None, "mix_chroma": votes["mix"] is not None}
     for k in names:
         r = detect_key(votes[k]) if votes[k] is not None else None
@@ -147,8 +163,12 @@ def run(ctx: StageContext) -> None:
     if notes:
         median = round(weighted_median([n.pitch for n in notes], [n.end - n.start for n in notes]), 2)
         shift = display_shift(median)
-    write_model(p.melody, Melody(hop_s=round(hop_s, 4), notes=notes, key=key, median_midi=median, tuning=tuning,
-                                 display_octave_shift=shift, params=params))
+    melody = Melody(hop_s=round(hop_s, 4), notes=notes, syllables=decoded.syllables, key=key,
+                    median_midi=median, tuning=tuning, display_octave_shift=shift, params=params)
+    issues = validate_melody(melody, lyrics)
+    if issues:
+        raise ValueError("invalid decoded melody: " + "; ".join(str(i) for i in issues[:5]))
+    write_model(p.melody, melody)
     sung = sum(n.end - n.start for n in notes)
     ctx.log.info("key %s (r=%.2f, runner-up %s), %s", key and f"{key.tonic} {key.mode}", res.r if res else 0,
                  key and key.runner_up, {k: v for k, v in params.items() if k.startswith("key_")})

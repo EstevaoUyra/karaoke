@@ -390,3 +390,21 @@ Tried, not adopted:
   no constant offset, and the stem and the isolated lead agree. Note by note, many are fast
   alternations in the transcription (66–64–66 at 0.13 s) where the voice stays near one pitch and
   only dips: the transcribers wrote the intended figure. Not fixable from the audio alone.
+
+## Melody: full activation and syllable constraints (2026-11-11, method 5)
+
+[Full report, reproduction commands and reference audit](melody-decoder.md).
+
+On 11 jobs, large jumps fall from 230/4,126 to 73/4,861; jumps classified as wrong against the
+reference fall from 92 to 29. All 2,810 words and 3,796 inferred syllables have pitches, with
+zero note time outside words. This is a coverage/continuity gain, **not a demonstrated overall
+pitch-accuracy gain**: eight-song exact reference agreement falls 67.6 → 60.4%, timing-tolerant
+76.1 → 72.1%, onset F 67.3 → 61.0%. Vocadito A1 pitch improves 80.9 → 84.2%, while note F falls
+67.0 → 64.4%; A2 note F falls 66.8 → 57.5%. Settings and priors used these same examples.
+
+Treat the old “gold” terminology as human reference annotations, not infallible truth. Official
+revised Rock Corpus annotations disagree at 19 shared pitch labels across four of these songs;
+our local “verified” status only checked numerical alignment. Vocadito annotators agree at
+73.96% note F under our scorer. Timing/weak-octave/subset and segmentation-invariant sensitivity
+checks are in the report; they do not reverse the overall full-song comparison. No references
+were edited to favour the candidate, and no listening adjudication is claimed.

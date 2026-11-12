@@ -114,13 +114,19 @@ export function PianoRoll({ player, melody, contour, missing, onSeek }: {
       if (n.end < t0 || n.start > tEnd) continue;
       const on = n.start <= t && t < n.end;
       if (on) current = n;
-      const a = on ? 1 : 0.4 + 0.5 * n.conf;
-      g.fillStyle = on ? "#ffffff" : `rgba(79, 195, 247, ${a.toFixed(3)})`;
+      const a = (on ? 1 : 0.55) * (0.2 + 0.8 * n.conf);
+      g.fillStyle = on ? `rgba(255,255,255,${a.toFixed(3)})` : `rgba(79,195,247,${a.toFixed(3)})`;
       const w = Math.max(2, (n.end - n.start) * pxPerS - 1);
       const r = Math.min(3, rowH / 2, w / 2);
       g.beginPath();
       g.roundRect(x(n.start), y(n.midi) + 1, w, Math.max(2, rowH - 2), r);
       g.fill();
+    }
+    // Explicit syllable starts remain visible even when adjacent pitches agree.
+    g.fillStyle = "rgba(255,255,255,0.6)";
+    for (const sy of melody.syllables) {
+      if (sy.start < t0 || sy.start > tEnd) continue;
+      g.fillRect(x(sy.start), HEIGHT - 5, 1, 5);
     }
     // playhead
     const px = x(t);
