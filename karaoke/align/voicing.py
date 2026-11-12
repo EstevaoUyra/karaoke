@@ -80,6 +80,10 @@ EDGE_DROP_DB = 12.0  # a pause edge is where the voice falls this far below its 
 EDGE_FLOOR_DB = 4.0  # ... or to within this of the pause's own background level
 OFFSET_MAX_S = 0.8
 PITCH_PAUSE_S = 1.0  # rap has unpitched stretches of up to ~0.6 s (consonant clusters); pauses are longer
+# A chopped, processed hook has no pitch and sits quieter than the singing around it, but a
+# syllable starts on every beat; a pause has none. A pitch pause with at least two onsets, one
+# per this many seconds, is singing.
+SUNG_ONSET_EVERY_S = 0.8
 START_TOL_S = 0.3  # a word starting this close before a pause starts is the first word after it
 SQUEEZED_WORD_S = 0.12  # shortest word when words are moved out of a pause
 
@@ -282,12 +286,16 @@ def retime_across_pauses(env: Envelope, times: list[list[float]], fixed: list[bo
     from karaoke.align.interpolate import natural_duration
 
     pauses = [env.pause_edges(a, b) for a, b in env.pitch_pauses()]
+    onsets = env.onsets()
     n = len(times)
     fixed = fixed or [False] * n
     changed: set[int] = set()
     for a, b in pauses:
         if b - a < PITCH_PAUSE_S:
             continue
+        n_on = int(np.count_nonzero((onsets > a) & (onsets < b)))
+        if n_on >= 2 and n_on >= (b - a) / SUNG_ONSET_EVERY_S:
+            continue  # syllables keep starting: unpitched singing (a chopped hook), not a pause
         inside = [i for i in range(n) if times[i][0] < b - 0.05 and times[i][1] > a + 0.05]
         if not inside or any(fixed[i] for i in inside):
             continue
