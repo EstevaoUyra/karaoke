@@ -75,6 +75,17 @@ anything. Typical cases:
   words match a line elsewhere in the song, or another source has it): `insert_line` with the
   lyric's spelling and Whisper's times, then `clear_unmatched`; (b) an ad-lib ("yeah", "oh"):
   leave it out, it is not a lyric; (c) noise: leave it.
+- **Lines with ids `w001`, `w002`… (flag `from_whisper`).** The lyrics had nothing there, so the
+  aligner wrote down what Whisper heard: often half a song the lyrics site lacks, or a spoken
+  sample. They are sung or spoken; do not delete them for being "not in the lyrics". Their times
+  are Whisper's, their words are Whisper's spelling: when the same words are written elsewhere in
+  the song or in another source, `set_line` with that spelling and these times; when a word is a
+  plain mishearing of a name or a repeated hook, correct it; otherwise leave the line and list it.
+- **Timing you place without hearing it.** When a passage repeats one sung earlier (a last chorus),
+  do not copy the earlier line timings by arithmetic: the gaps between repeats drift. Find each
+  line's start in the audio itself (the vocal stem's loudness pattern of a heard repeat matches
+  the unheard one), or transcribe that stretch of the vocal stem on its own: Whisper times words
+  far better on a short clip than inside a whole song.
 - **`extra_heard`.** Whisper heard several more words in the line's time than the line has. Either
   something sung there is not in the lyrics (a backing answer, a repeat), or the line was matched
   to the wrong one of several identical phrases. See the next point.

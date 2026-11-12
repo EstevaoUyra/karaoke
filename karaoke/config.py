@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # User-Agent) and refuses many picture downloads from the ones that do not.
     contact: str | None = None  # KARAOKE_CONTACT
 
+    # --- YouTube upload (karaoke publish): an OAuth "Desktop app" client from Google Cloud, and the
+    # token saved after the first sign-in. Both stay outside the repo. ---
+    youtube_client_secret: Path = Path.home() / ".config" / "karaoke" / "client_secret.json"
+    youtube_token: Path = Path.home() / ".config" / "karaoke" / "youtube-token.json"
+
     # --- web ---
     host: str = "127.0.0.1"
     port: int = 8765

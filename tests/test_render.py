@@ -14,7 +14,7 @@ from karaoke.pipeline import run_job
 from karaoke.render.compositor import build_graph, render_background
 from karaoke.render.ffmpeg import extract_frame, ffprobe, has_filter, has_libass
 from karaoke.stages.render import ENCODES, build_command
-from karaoke.store import JobStore
+from karaoke.store import JobStore, read_model
 
 FFMPEG = get_settings().ffmpeg_bin
 FFPROBE = get_settings().ffprobe_bin
@@ -216,8 +216,14 @@ def test_render_demo_preview(demo, tmp_path):
     run_job("demo", only=[StageName.render], store=store)
 
     assert demo.ass.exists() and demo.preview_video.exists()
+    # the demo sings from 2 s: the video opens with silence, the title card and the dots first
+    from karaoke.models import LyricsFinal
+    from karaoke.render.ass import INTRO_MIN_S, lead_pad_s
+    lf = read_model(demo.lyrics_final, LyricsFinal)
+    lead = lead_pad_s(lf, job.settings.render)
+    assert lead == pytest.approx(INTRO_MIN_S - min(ln.words[0].start for ln in lf.lines))
     info = ffprobe(demo.preview_video, FFPROBE)
-    assert abs(float(info["format"]["duration"]) - 24.0) <= 0.1
+    assert abs(float(info["format"]["duration"]) - (24.0 + lead)) <= 0.1
     v = [s for s in info["streams"] if s["codec_type"] == "video"]
     a = [s for s in info["streams"] if s["codec_type"] == "audio"]
     assert len(v) == 1 and (v[0]["width"], v[0]["height"]) == (1280, 720)
@@ -226,16 +232,21 @@ def test_render_demo_preview(demo, tmp_path):
     frames_dir = tmp_path / "frames"
     frames_dir.mkdir()
     frames = {}
-    for t in (1.0, 3.0, 14.5, 18.5):
+    for t in (1.0, 3.0, 14.5, 18.5):  # song time; the video is ``lead`` later
         png = frames_dir / f"t{t:05.1f}.png"
-        extract_frame(FFMPEG, demo.preview_video, t, png)
+        extract_frame(FFMPEG, demo.preview_video, t + lead, png)
         frames[t] = Image.open(png).convert("RGB")
+    title_png = frames_dir / "title.png"
+    extract_frame(FFMPEG, demo.preview_video, 1.0, title_png)
+    title = Image.open(title_png).convert("RGB")
     if os.environ.get("KARAOKE_TEST_FRAMES_DIR"):  # keep the frames for a human (or Claude) to look at
         shutil.copytree(frames_dir, os.environ["KARAOKE_TEST_FRAMES_DIR"], dirs_exist_ok=True)
 
     sung, white = (0x4F, 0xC3, 0xF7), (255, 255, 255)
     top_row = (0, 470, 1280, 540)  # centre y = 0.70 * 720 = 504
     dots = (560, 435, 720, 475)  # countdown dots, above the top row
+    # 1 s into the video: the title card, mid-screen (0.42 of the height), nothing on the rows yet
+    assert _region_has(title, (0, 270, 1280, 330), white) and not _region_has(title, top_row, sung)
     # 1.0 s: line 1 is up (lead-in, nothing sung yet)
     assert _region_has(frames[1.0], top_row, white) and not _region_has(frames[1.0], top_row, sung)
     # 3.0 s: mid line 1, partly filled

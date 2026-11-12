@@ -47,18 +47,27 @@ ENCODES = {
 def build_command(
     *, bg_inputs: list[str], bg_filter: str, frames: int, fps: int, ass_name: str,
     instrumental: Path, vocals: Path | None, guide_db: float | None, duration: float,
-    encode: Encode, out: Path, fontsdir: Path | None = None,
+    encode: Encode, out: Path, fontsdir: Path | None = None, lead_pad: float = 0.0,
 ) -> list[str]:
-    """ffmpeg args (without the binary) for background + ASS + audio → mp4."""
+    """ffmpeg args (without the binary) for background + ASS + audio → mp4.
+
+    ``duration`` is the song's; with ``lead_pad`` the video starts that many seconds earlier: the
+    background holds its first frame and the audio is silent (the ASS is already shifted)."""
     n_bg = sum(1 for a in bg_inputs if a == "-i")
     args = ["-y", *bg_inputs, "-i", str(instrumental)]
     a_inst = n_bg
     ass = f"ass=filename={ass_name}"
     if fontsdir:
         ass += f":fontsdir={fontsdir}"
-    graph = [bg_filter, f"[bg]{ass}[v]"]
+    if lead_pad > 0:
+        graph = [bg_filter, f"[bg]tpad=start_duration={lead_pad:.3f}:start_mode=clone[bgp]", f"[bgp]{ass}[v]"]
+    else:
+        graph = [bg_filter, f"[bg]{ass}[v]"]
     fmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo"
+    total = duration + lead_pad
     pad = f"atrim=end={duration:.3f},apad=whole_dur={duration:.3f}"
+    if lead_pad > 0:
+        pad += f",adelay=delays={round(lead_pad * 1000)}:all=1,apad=whole_dur={total:.3f}"
     if guide_db is not None and vocals is not None:
         args += ["-i", str(vocals)]
         graph.append(f"[{a_inst}:a]{fmt}[inst]")
@@ -70,9 +79,9 @@ def build_command(
         "-filter_complex", ";".join(graph),
         "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", encode.preset, "-crf", str(encode.crf), "-pix_fmt", "yuv420p",
-        "-r", str(fps), "-frames:v", str(frames),
+        "-r", str(fps), "-frames:v", str(frames + round(lead_pad * fps)),
         "-c:a", "aac", "-b:a", encode.audio_bitrate,
-        "-t", f"{duration:.3f}",
+        "-t", f"{total:.3f}",
         "-movflags", "+faststart",
         "-f", "mp4", str(out),
     ]
@@ -81,7 +90,7 @@ def build_command(
 
 def run(ctx: StageContext) -> None:
     from karaoke.models import Background, LyricsFinal, Melody, Meta
-    from karaoke.render.ass import build_ass
+    from karaoke.render.ass import build_ass, lead_pad_s, shift_times
     from karaoke.render.compositor import build_graph
     from karaoke.render.ffmpeg import has_libass, run_ffmpeg
     from karaoke.stages.backgrounds import default_background
@@ -142,7 +151,20 @@ def run(ctx: StageContext) -> None:
             contour = load_contour_midi(p)
             if contour is None:
                 ctx.log.info("no pitch contour (%s): the guide has bars only", p.rel(p.melody_f0))
-    ass_text = build_ass(lyrics, meta, rs, size, beat_s, melody, contour)
+    lead = lead_pad_s(lyrics, rs)
+    if lead > 0:  # silence before the song: the title card and the countdown before the first word
+        ctx.log.info("the singing starts at %.2f s: %.2f s of silence first", min(
+            ln.words[0].start for ln in lyrics.lines if ln.words), lead)
+        lyrics = shift_times(lyrics, lead)
+        if melody is not None:
+            melody = shift_times(melody, lead)
+        if contour is not None:
+            import numpy as np
+
+            midi, hop = contour
+            contour = (np.concatenate([np.full(round(lead / hop), np.nan), midi]), hop)
+    meta_r = meta.model_copy(update={"duration": duration + lead})
+    ass_text = build_ass(lyrics, meta_r, rs, size, beat_s, melody, contour)
     atomic_write_text(p.ass, ass_text)
 
     p.output_dir.mkdir(parents=True, exist_ok=True)
@@ -157,12 +179,13 @@ def run(ctx: StageContext) -> None:
         args = build_command(
             bg_inputs=g.input_args, bg_filter=g.filter, frames=g.frames, fps=g.fps, ass_name="karaoke.ass",
             instrumental=p.instrumental.resolve(), vocals=p.vocals.resolve() if guide_db is not None else None,
-            guide_db=guide_db, duration=duration, encode=encode, out=part.resolve(),
+            guide_db=guide_db, duration=duration, encode=encode, out=part.resolve(), lead_pad=lead,
         )
+        total = duration + lead
 
         def on_progress(t: float) -> None:
-            frac = min(1.0, t / duration) if duration > 0 else 0.0
-            ctx.progress(0.05 + 0.94 * frac, f"encoding {t:5.1f}/{duration:.1f}s")
+            frac = min(1.0, t / total) if total > 0 else 0.0
+            ctx.progress(0.05 + 0.94 * frac, f"encoding {t:5.1f}/{total:.1f}s")
 
         ctx.progress(0.05, f"encoding {rs.preset} with {ffmpeg_bin}")
         try:

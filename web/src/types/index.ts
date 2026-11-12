@@ -7,6 +7,7 @@ import type * as JB from "./generated/job";
 import type { Meta } from "./generated/meta";
 import type { LyricsChoice } from "./generated/lyrics_choice";
 import type * as ML from "./generated/melody";
+import type { YouTubeUpload } from "./generated/youtube";
 
 type Full<T> = { [K in keyof T]-?: T[K] };
 
@@ -65,6 +66,36 @@ export interface JobSummary {
   thumbnail: string | null;
   stages: Record<StageName, { status: StageStatus; progress: number }>;
   queue: QueueState;
+  youtube: YouTubeSummary | null;
+}
+
+export type Privacy = "private" | "unlisted" | "public";
+
+/** What the song list shows about a job's YouTube upload (karaoke/api/youtube.py). */
+export interface YouTubeSummary {
+  video_id: string | null;
+  privacy: Privacy | null;
+  uploaded_at: string | null;
+  task: "queued" | "running" | null;
+}
+
+export type YouTubeDraft = Full<YouTubeUpload>;
+
+export interface YouTubeTask {
+  status: "queued" | "running" | "done" | "failed";
+  message: string;
+}
+
+/** GET /api/jobs/<id>/youtube */
+export interface YouTubeStatus {
+  draft: YouTubeDraft | null;
+  errors: string[];
+  video_ready: boolean;
+  video_changed: boolean;
+  client_secret: boolean;
+  signed_in: boolean;
+  task: YouTubeTask | null;
+  messages?: string[];
 }
 
 export interface FileInfo {

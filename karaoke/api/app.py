@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from sse_starlette import EventSourceResponse
 
-from karaoke.api import backgrounds, jobs, lyrics, melody, render
+from karaoke.api import backgrounds, jobs, lyrics, melody, render, youtube
 from karaoke.api.deps import AppState, state
 from karaoke.api.queue import JobQueue
 from karaoke.api.sse import EventHub
@@ -65,7 +65,7 @@ def create_app(
 
     app = FastAPI(title="karaoke", lifespan=lifespan)
     app.state.karaoke = AppState(store=store, settings=settings, hub=hub, queue=queue)
-    for r in (jobs.router, lyrics.router, melody.router, backgrounds.router, render.router):
+    for r in (jobs.router, lyrics.router, melody.router, backgrounds.router, render.router, youtube.router):
         app.include_router(r)
 
     @app.get("/api/events")

@@ -17,7 +17,8 @@ Layout (classic multi-row karaoke):
 - Every pause of at least ``PAUSE_DOTS_MIN_S`` (the intro, between lines, or inside a line) gets
   three dots above the rows that go out one per beat; the last one goes out as the singing resumes.
   The beat comes from the song's tempo when the caller knows it.
-- A title card (title / artist) during the intro when the first line starts after ``TITLE_MIN_INTRO_S``.
+- A title card (title / artist) during the intro. When the singing starts early the render puts
+  silence before the song first (``lead_pad_s``), so every video opens with the title and the dots.
 
 All times are rounded to centiseconds on an absolute grid, so the ``\\k`` sums are exact.
 """
@@ -26,9 +27,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from karaoke.models import Line, LyricsFinal, Melody, Meta, RenderSettings
 from karaoke.render.layout import display_lines, text_measurer
+
+M = TypeVar("M", bound=BaseModel)
 
 BASE_HEIGHT = 1080
 FOLD_GAP_S = 0.35  # gaps up to this are folded into the previous word's fill
@@ -44,6 +50,7 @@ FAST_WINDOW = 5  # lines in that median
 MIN_RUN = 4  # fewest lines in a stretch of 2 or 3 rows
 OUTLINE = 3.5  # text outline at 1080p
 TITLE_MIN_INTRO_S = 3.0
+INTRO_MIN_S = 6.0  # the first word comes at least this late: title card, then the countdown dots
 ROW_TOP_Y = 0.70  # centre of the top row, as a fraction of the height
 ROW_SPACING = 1.6  # distance between the rows, in font sizes
 MAX_TEXT_WIDTH = 0.90  # lines wider than this fraction of the width are split (titles shrink)
@@ -51,6 +58,34 @@ SOFT_TEXT_WIDTH = 0.62  # ... and lines wider than this, if they have a strong b
 CHAR_WIDTH_EM = 0.58  # rough average glyph advance of a bold sans font, in font sizes
 
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")
+
+
+# --------------------------------------------------------------------------- lead-in
+
+
+def lead_pad_s(lyrics: LyricsFinal, rs: RenderSettings) -> float:
+    """Seconds of silence put before the song so it opens with the title card and the countdown:
+    when singing starts within ``INTRO_MIN_S``, the video starts that much earlier than the audio.
+    Everything in the video (lyrics, pitch guide, chapters) is then later by this amount."""
+    if not rs.show_title_card:
+        return 0.0
+    starts = [ln.words[0].start for ln in lyrics.lines if ln.words]
+    if not starts:
+        return 0.0
+    return round(max(0.0, INTRO_MIN_S - min(starts)), 2)
+
+
+def shift_times(model: M, by: float) -> M:
+    """A copy of a lyrics or melody file with every ``start`` and ``end`` later by ``by`` seconds."""
+    def walk(x):
+        if isinstance(x, dict):
+            return {k: (v + by if k in ("start", "end") and isinstance(v, (int, float)) else walk(v))
+                    for k, v in x.items()}
+        if isinstance(x, list):
+            return [walk(v) for v in x]
+        return x
+
+    return type(model).model_validate(walk(model.model_dump()))
 
 
 # --------------------------------------------------------------------------- primitives

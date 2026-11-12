@@ -1,6 +1,6 @@
 import type {
   BackgroundDoc, ContourDoc, Issue, MelodyDoc, JobDetail, JobSettingsDoc, JobSummary, LyricsDoc, LyricsSources, QueueSnapshot,
-  RenderSettingsDoc, RunRequest, StageName,
+  RenderSettingsDoc, RunRequest, StageName, Privacy, YouTubeStatus,
 } from "./types";
 
 import type { Structure } from "./types/generated/structure";
@@ -105,6 +105,13 @@ export const api = {
   applyBackgroundPreset: (id: string, name: string, replaceLocked = false) =>
     req<{ background: BackgroundDoc; issues: Issue[] }>(
       "POST", `${j(id)}/background/preset`, { name, replace_locked: replaceLocked }),
+  youtube: (id: string) => req<YouTubeStatus>("GET", `${j(id)}/youtube`),
+  youtubeDraft: (id: string, redo = false) => req<YouTubeStatus>("POST", `${j(id)}/youtube/draft`, { redo }),
+  saveYoutube: (id: string, d: { title: string; description: string; tags: string[]; privacy: Privacy; playlist: string | null }) =>
+    req<YouTubeStatus>("PUT", `${j(id)}/youtube`, d),
+  youtubeUpload: (id: string, again = false) => req<YouTubeStatus>("POST", `${j(id)}/youtube/upload`, { again }),
+  youtubeUpdate: (id: string, privacy?: Privacy) =>
+    req<YouTubeStatus>("POST", `${j(id)}/youtube/update`, { privacy: privacy ?? null }),
   uploadSceneImage: (id: string, sceneId: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);

@@ -10,6 +10,7 @@ import pytest
 
 from karaoke.align import dp
 from karaoke.align.core import align_lyrics
+from karaoke.align.fallback import FROM_WHISPER
 from karaoke.align.tokens import LrcLine, match_key, parse_chosen_text
 from karaoke.models import (
     LyricsChoice,
@@ -222,21 +223,26 @@ def _sections_song(lyric_sections: list[str], sung_sections: list[str]):
 @pytest.mark.parametrize("sung", [["V1", "C", "V2", "C", "C"], ["V1", "C", "C", "V2", "C"]])
 def test_chorus_sung_more_often_than_written(sung):
     lines, truth, blocks = _sections_song(["V1", "C", "V2", "C"], sung)
-    lf, _ = align_lyrics(lines, transcript(truth))
+    lf, stats = align_lyrics(lines, transcript(truth))
     assert_valid(lf)
     words = flat_words(lf)
     assert all(w.origin == WordOrigin.matched for w in words)
+    written = [ln for ln in lf.lines if ln.id.startswith("l")]
     # every lyric line maps onto exactly one sung copy, word for word
     copies = [b for b in blocks]
-    for k, ln in enumerate(lf.lines):
+    for k, ln in enumerate(written):
         starts = [w.start for w in ln.words]
         cands = [[s for _, s, _ in r] for b in copies for r in b if " ".join(w for w, _, _ in r) == lines[k].text]
         assert starts in cands, ln.id
-    verse2 = lf.lines[4]
+    verse2 = written[4]
     assert verse2.start == blocks[sung.index("V2")][0][0][1]
+    assert all(not ln.flags for ln in written)
+    # the chorus sung once more than written is not dropped: it becomes lines from what whisper heard
+    filled = [ln for ln in lf.lines if ln.id.startswith("w")]
     chorus_words = sum(len(ln.split()) for ln in CHORUS)
-    assert sum(len(u.text.split()) for u in lf.unmatched_audio) == chorus_words
-    assert all(not ln.flags for ln in lf.lines)
+    assert sum(len(ln.words) for ln in filled) == chorus_words == stats.filled_words
+    assert all(FROM_WHISPER in ln.flags for ln in filled) and lf.unmatched_audio == []
+    assert filled[0].start in {b[0][0][1] for b, s in zip(blocks, sung, strict=True) if s == "C"}
 
 
 def test_chorus_written_more_often_than_sung():

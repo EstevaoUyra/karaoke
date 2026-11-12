@@ -161,6 +161,14 @@ class JobPaths:
         return self.output_dir / "karaoke.mp4"
 
     @property
+    def youtube(self) -> Path:
+        return self.output_dir / "youtube.json"  # karaoke publish: the upload's metadata and video id
+
+    @property
+    def thumbnail(self) -> Path:
+        return self.output_dir / "thumbnail.jpg"
+
+    @property
     def logs_dir(self) -> Path:
         return self.root / "logs"
 
