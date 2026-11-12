@@ -177,3 +177,21 @@ def test_contour_is_downsampled(client, demo, conf_key):
     assert r["conf"][0] == pytest.approx(0.05)
     demo.vocals.write_bytes(demo.vocals.read_bytes()[:-2])  # the stem changed: the contour is stale
     assert client.get("/api/jobs/demo/melody/contour").json()["stale"]
+
+
+def test_v2_syllables_are_served_and_exported_as_midi(client, demo):
+    from karaoke.models import Syllable
+
+    m = demo_melody()
+    m.notes = m.notes[:1]
+    n = m.notes[0]
+    n.syllable = 0
+    m.syllables = [Syllable(line_id='l1', word_index=0, text='Sing', start=n.start, end=n.end)]
+    write_model(demo.melody, m)
+    response = client.get('/api/jobs/demo/melody')
+    assert response.status_code == 200
+    assert response.json()['version'] == 2
+    assert response.json()['notes'][0]['syllable'] == 0
+    assert response.json()['syllables'][0]['text'] == 'Sing'
+    mid = client.get('/api/jobs/demo/melody.mid')
+    assert mid.status_code == 200 and mid.content.startswith(b'MThd')

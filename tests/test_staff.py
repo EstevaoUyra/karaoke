@@ -207,7 +207,11 @@ def _fake_track(calls: list, fail: set[str] = frozenset()):
         for i, w in enumerate(x for ln in lf.lines for x in ln.words):
             f0[int(w.start / hop) + 1:int(w.end / hop)] = 440 * 2 ** ((scale[i % len(scale)] - 69) / 12)
         prob = np.where(np.isfinite(f0), 0.9, 0.0).astype(np.float32)
-        return f0, prob, hop
+        from karaoke.melody.decode import activation_from_contour
+
+        act, bin0 = activation_from_contour(f0, prob)
+        act = np.round(act * 255).astype(np.uint8).astype(np.float32) / 255
+        return f0, prob, hop, act, bin0
 
     return fake_track
 
@@ -241,8 +245,14 @@ def test_melody_stage_with_a_fake_pitch_track(demo, monkeypatch, in_process):
     assert m.key is not None and (m.key.tonic, m.key.mode, m.key.accidentals) == ("G", "major", ["F#"])
     assert m.display_octave_shift == 0 and abs(m.tuning) < 0.05 and m.params["tracker"] == "crepe-tiny"
     assert demo.melody_f0.exists() and calls == ["crepe-tiny"]
-    # a lyrics edit re-segments from the cached contour (no second pitch track) ...
-    run_job("demo", only=[StageName.melody], store=store, settings=settings)
+    assert m.syllables and all(n.syllable is not None for n in m.notes)
+    with np.load(demo.melody_f0) as cache:
+        assert cache['act'].dtype == np.uint8 and int(cache['version']) == stage.TRACK_VERSION
+        assert len(cache['act']) == len(cache['f0']) == len(cache['conf'])
+    # Force a second decode, so this checks the activation cache rather than a skipped stage.
+    run_job("demo", only=[StageName.melody], store=store, settings=settings, force=True)
+    again = read_model(demo.melody, Melody)
+    assert again.notes == m.notes and again.syllables == m.syllables
     assert calls == ["crepe-tiny"]
     # ... but another tracker does not reuse it
     run_job("demo", only=[StageName.melody], store=store,

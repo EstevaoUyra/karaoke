@@ -287,7 +287,8 @@ class Note(_Model):
     end: float
     midi: int  # sounding pitch, MIDI number (60 = C4)
     pitch: float  # median f0 of the note in fractional MIDI (intonation, before rounding)
-    conf: float = 1.0  # 0..1: mean pyin voicing probability over the note
+    conf: float = 1.0  # 0..1: mean support for the selected pitch
+    syllable: int | None = None  # index in Melody.syllables; None for legacy/no-lyrics notes
 
 
 class KeyEstimate(_Model):
@@ -302,10 +303,21 @@ class KeyEstimate(_Model):
     method: str = "krumhansl-schmuckler"
 
 
+class Syllable(_Model):
+    """A written syllable and its estimated sung span inside one lyric word."""
+
+    line_id: str
+    word_index: int = Field(ge=0)
+    text: str
+    start: float
+    end: float
+
+
 class Melody(_Model):
     """melody.json: the sung melody of the vocal stem as notes, plus the song's key."""
 
-    version: Literal[1] = 1
+    version: Literal[1, 2] = 2  # v1 remains readable; v2 adds syllables and note links
+    syllables: list[Syllable] = Field(default_factory=list)
     hop_s: float  # pitch-tracker hop the notes were segmented from
     notes: list[Note]
     key: KeyEstimate | None = None

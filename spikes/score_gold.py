@@ -23,7 +23,7 @@ Columns:
   for at least 50 ms between ``TOL_S`` before the reference onset and ``TOL_S`` after the pitch
   window. The references' onsets are quantised to a grid (17-30 % sit more than 150 ms from ours,
   with no systematic lead or lag), so ``pitch`` is too strict and ``loose`` a little too kind
-  (a repeated pitch next door also counts); the truth is in between.
+  (a repeated pitch next door also counts). These are agreement measures, not bounds on truth.
 - ``pitch≥`` / ``loose≥``: the same two over reference notes at least ``--min-dur`` seconds long
   (the time to the next onset where the reference has no note ends).
 
@@ -133,10 +133,10 @@ def onset_scores(refs: list[N], ours: list[N], tol: float) -> dict[str, float]:
     return {"on_P": p, "on_R": r, "on_F": 2 * p * r / (p + r) if p + r else 0.0}
 
 
-def score(song: Path, tol: float, min_dur: float = 0.2) -> dict | None:
+def score(song: Path, tol: float, min_dur: float = 0.2, melody: str = "melody.json") -> dict | None:
     ref = json.loads((song / "reference.json").read_text())
     job = (ref.get("audio") or {}).get("job_id")
-    mel = JOBS / job / "melody.json" if job else None
+    mel = JOBS / job / melody if job else None
     if not mel or not mel.exists():
         return None
     refs, spans, octave_known = load_reference(ref)
@@ -174,9 +174,10 @@ def main() -> None:
     ap.add_argument("--tol", type=float, default=0.15, help="onset tolerance in seconds")
     ap.add_argument("--min-dur", type=float, default=0.2, help="'long' notes are at least this long (s)")
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--melody", default="melody.json", help="file name inside each job folder")
     args = ap.parse_args()
     dirs = sorted(d for d in GOLD.iterdir() if (d / "reference.json").exists() and (not args.songs or d.name in args.songs))
-    rows = [r for d in dirs if (r := score(d, args.tol, args.min_dur))]
+    rows = [r for d in dirs if (r := score(d, args.tol, args.min_dur, args.melody))]
     cols = ["found", "pitch", "loose", "pitch_long", "loose_long", "sure", "pitch_sure", "loose_sure", "near", "oct", "on_F"]
     head = {"near": "±1", "pitch_long": f"pitch≥{args.min_dur:g}s", "loose_long": f"loose≥{args.min_dur:g}s",
             "pitch_sure": "pitch|sure", "loose_sure": "loose|sure"}

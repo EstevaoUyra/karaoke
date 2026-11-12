@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from karaoke.models import SCHEMA_MODELS, Background, LyricsFinal
+from karaoke.models import SCHEMA_MODELS, Background, LyricsFinal, Melody
 from karaoke.store import JobPaths
 
 EPS = 0.02  # 20 ms tolerance
@@ -110,6 +110,62 @@ def validate_background(bg: Background, paths: JobPaths, duration: float | None 
     return out
 
 
+def validate_melody(melody: Melody, lyrics: LyricsFinal | None = None) -> list[Issue]:
+    """Check v2 syllable coverage against its lyric words; legacy/free notes remain readable."""
+    import math
+
+    out: list[Issue] = []
+
+    def error(where, message):
+        out.append(Issue("error", "melody.json", where, message))
+
+    for i, note in enumerate(melody.notes):
+        if not all(math.isfinite(x) for x in (note.start, note.end, note.pitch, note.conf)):
+            error(f"note {i}", "non-finite note value")
+        if note.start < 0 or note.end <= note.start or not 0 <= note.conf <= 1:
+            error(f"note {i}", "invalid span or confidence")
+    constrained = bool(melody.syllables or melody.params.get("syllables"))
+    if not constrained:
+        return out
+    linked: dict[int, list] = {i: [] for i in range(len(melody.syllables))}
+    for i, note in enumerate(melody.notes):
+        if note.syllable not in linked:
+            error(f"note {i}", "missing or invalid syllable link")
+        else:
+            linked[note.syllable].append(note)
+    words = {(ln.id, wi): w for ln in lyrics.lines for wi, w in enumerate(ln.words) if w.text.strip()} if lyrics else {}
+    grouped: dict[tuple[str, int], list] = {}
+    for i, sy in enumerate(melody.syllables):
+        where = f"syllable {i}"
+        if not math.isfinite(sy.start) or not math.isfinite(sy.end) or sy.start < 0 or sy.end <= sy.start:
+            error(where, "invalid syllable span")
+        key = (sy.line_id, sy.word_index)
+        grouped.setdefault(key, []).append(sy)
+        if lyrics is not None:
+            word = words.get(key)
+            if word is None or not (word.start <= sy.start < sy.end <= word.end):
+                error(where, "syllable outside its lyric word")
+        t = sy.start
+        notes = sorted(linked[i], key=lambda n: n.start)
+        if not notes:
+            error(where, "syllable has no pitch")
+        for note in notes:
+            if abs(note.start-t) > 1e-8 or note.end > sy.end + 1e-8:
+                error(where, "notes do not tile the syllable exactly")
+            t = note.end
+        if abs(t-sy.end) > 1e-8:
+            error(where, "notes do not reach the syllable end")
+    for key, word in words.items():
+        spans = grouped.get(key, [])
+        if not spans:
+            error(f"word {key}", "word has no syllable/pitch")
+        elif ''.join(s.text for s in spans) != word.text:
+            error(f"word {key}", "syllable text does not reconstruct the word")
+        if any(abs(a.end-b.start) > 1e-8 for a, b in zip(spans, spans[1:], strict=False)):
+            error(f"word {key}", "syllables overlap or have internal gaps")
+    return out
+
+
 _FILES = {
     "job": "job.json",
     "meta": "meta.json",
@@ -139,6 +195,8 @@ def validate_job(paths: JobPaths) -> list[Issue]:
     duration = getattr(parsed.get("meta"), "duration", None)
     if isinstance(parsed.get("lyrics_final"), LyricsFinal):
         out += validate_lyrics(parsed["lyrics_final"], duration)  # type: ignore[arg-type]
+    if isinstance(parsed.get("melody"), Melody):
+        out += validate_melody(parsed["melody"], parsed.get("lyrics_final"))  # type: ignore[arg-type]
     if isinstance(parsed.get("background"), Background):
         out += validate_background(parsed["background"], paths, duration)  # type: ignore[arg-type]
     return out

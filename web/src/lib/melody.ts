@@ -1,5 +1,5 @@
 // Where the pitch guide has gaps: time where words are sung but no note was found.
-import type { LyricsDoc } from "../types";
+import type { LyricsDoc, MelodyDoc } from "../types";
 
 export interface Span {
   start: number;
@@ -47,3 +47,11 @@ export function missingSpans(lyrics: LyricsDoc | null, notes: Span[], minS = 0.2
 }
 
 export const total = (spans: Span[]) => spans.reduce((a, s) => a + s.end - s.start, 0);
+
+/** v2 coverage follows syllable spans: trimmed word tails are rests, not missing singing. */
+export function guideGaps(lyrics: LyricsDoc | null, melody: MelodyDoc | null): Span[] {
+  if (melody?.syllables.length) {
+    return subtract(union(melody.syllables), union(melody.notes)).filter((s) => s.end > s.start);
+  }
+  return missingSpans(lyrics, melody?.notes ?? []);
+}

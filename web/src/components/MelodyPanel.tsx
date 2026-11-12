@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../api";
 import { useServerEvent } from "../events";
-import { missingSpans, total } from "../lib/melody";
+import { guideGaps, missingSpans, total } from "../lib/melody";
 import type { StemPlayer } from "../lib/player";
 import { fmtTime } from "../lib/time";
 import type { ContourDoc, LyricsDoc, MelodyDoc } from "../types";
@@ -46,7 +46,7 @@ export function MelodyPanel({ jobId, player, melody, contour, missing, lyrics, r
   setExact: (v: boolean) => void;
 }) {
   const [queued, setQueued] = useState(false);
-  const gaps = useMemo(() => missingSpans(lyrics, melody?.notes ?? []), [lyrics, melody]);
+  const gaps = useMemo(() => guideGaps(lyrics, melody), [lyrics, melody]);
   const sung = useMemo(() => total(missingSpans(lyrics, [], 0)), [lyrics]);
 
   if (!melody) {
@@ -76,9 +76,9 @@ export function MelodyPanel({ jobId, player, melody, contour, missing, lyrics, r
         <span title={k ? `Krumhansl-Schmuckler correlation ${k.confidence.toFixed(2)}, margin ${k.margin.toFixed(2)} over ${k.runner_up}` : ""}>
           {k ? <>Key <b>{k.tonic} {k.mode}</b> (confidence {k.confidence.toFixed(2)}{k.runner_up ? `, next best ${k.runner_up}` : ""})</> : "Key unknown"}
         </span>
-        <span>{melody.notes.length} notes</span>
+        <span>{melody.notes.length} notes{melody.syllables.length > 0 ? ` · ${melody.syllables.length} syllables` : ""}</span>
         <span className={gapS > 0 ? "gapinfo" : ""} title="Time where words are sung but no note was detected">
-          {gapS > 0 ? `${fmtTime(gapS, 0)} of singing without notes (${Math.round((100 * gapS) / Math.max(sung, 1))}%)` : "Every sung word has a note"}
+          {gapS > 0 ? `${fmtTime(gapS, 0)} of singing without notes (${Math.round((100 * gapS) / Math.max(sung, 1))}%)` : melody.syllables.length ? "Every syllable has a pitch" : "Every sung word has a note"}
         </span>
         <span className="spacer" />
         {gaps.length > 0 && <button className="small" onClick={nextGap}>Next gap</button>}
@@ -89,6 +89,7 @@ export function MelodyPanel({ jobId, player, melody, contour, missing, lyrics, r
         <a className="button small" href={api.midiUrl(jobId)} download>MIDI</a>
       </div>
       <PianoRoll player={player} melody={melody} contour={contour} missing={gaps} onSeek={(t) => player.seek(t)} />
+      {melody.syllables.length > 0 && <p className="faint">Syllable timing is estimated. Faint notes have weak pitch evidence.</p>}
       {contour?.stale && <p className="faint">The pitch contour is older than the vocal stem: run the Melody step again.</p>}
     </div>
   );
