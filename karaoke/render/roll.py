@@ -18,6 +18,8 @@ step at all, so a melody looks flat and its chromatic moves are only a small acc
 - **The voice's real pitch** (the raw contour, ``cache/melody.f0.npz``) is a thin line over each
   bar: scoops, slides and vibrato show, and a bar the voice does not hold (speech-like singing,
   rap) is drawn faint, so only the line and the rhythm are left.
+- **Doubtful notes are faint too**: a note the CREPE tracker was unsure of (``UNSURE_CONF``) is
+  right far less often than a confident one (docs/benchmarks.md), so it should not look the same.
 - **Words under the notes**: each word scrolls along the bottom of the lane, starting under its
   first note, and fills at the playhead like the bars. (Squeezed to its time slot when the singing
   is fast.)
@@ -54,6 +56,7 @@ CURVE_STEP_S = 0.03
 CURVE_RANGE = 3.0  # contour points further than this from the note (semitones) are tracker glitches
 CURVE_COLOR = "#FFC94D"
 STEADY_ST = 0.6  # a frame "holds" the note within this many semitones
+UNSURE_CONF = 0.4  # CREPE notes below this confidence are drawn faint (measured: 37 % right vs 74 %)
 STEADY_MIN = 0.5  # bars the voice holds for less than this share of their length are drawn faint
 WORD_MIN_SCALE = 0.6  # words are squeezed to their time slot down to this
 FADE_MS = 400
@@ -76,6 +79,7 @@ class RollNote:
     join_left: bool = False  # continues the previous bar (same pitch, no rest)
     join_right: bool = False
     steady: float = 1.0  # share of the note the voice holds its pitch (1 without a contour)
+    sure: bool = True  # False: the tracker was not confident of this note
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,8 @@ def roll_notes(melody: Melody, lo: int, hi: int, min_conf: float = 0.0, contour:
     """The notes inside the lane, with their joins. ``contour`` is (fractional MIDI per frame with
     NaN where unpitched, hop seconds), on the recording's tuning (``melody.tuning`` is added)."""
     kept = [n for n in melody.notes if n.conf >= min_conf and n.end > n.start and lo <= n.midi <= hi]
+    # only CREPE's confidence is calibrated for this; pyin's is low on held notes of a stem
+    floor = UNSURE_CONF if str(melody.params.get("tracker", "")).startswith("crepe") else 0.0
     out = []
     for i, n in enumerate(kept):
         prev = kept[i - 1] if i else None
@@ -168,7 +174,8 @@ def roll_notes(melody: Melody, lo: int, hi: int, min_conf: float = 0.0, contour:
         steady = steadiness(contour, n.start, n.end, n.midi + melody.tuning) if contour is not None else 1.0
         out.append(RollNote(n.start, n.end, n.midi,
                             prev is not None and prev.midi == n.midi and n.start - prev.end < JOIN_S,
-                            nxt is not None and nxt.midi == n.midi and nxt.start - n.end < JOIN_S, steady))
+                            nxt is not None and nxt.midi == n.midi and nxt.start - n.end < JOIN_S, steady,
+                            n.conf >= floor))
     return out
 
 
@@ -305,7 +312,7 @@ def pitch_events(melody: Melody, rs: RenderSettings, resolution: tuple[int, int]
             right = max(right, left + bh)
         y = L.y(n.midi)
         bar = _bar(left, y - bh / 2, max(right, left + 1.0), y + bh / 2, not n.join_left, not n.join_right)
-        faint = n.steady < STEADY_MIN
+        faint = n.steady < STEADY_MIN or not n.sure
         alpha = FAINT_ALPHA if faint else NOTE_ALPHA
         ev.append(Event(a, b, "Pitch", f"{{{move}{lane_clip}\\1c{unsung}\\1a&H{alpha:02X}&{bord}{p}}}{bar}{{\\p0}}",
                         layer=13, name="pitch-faint" if faint else "pitch-note"))

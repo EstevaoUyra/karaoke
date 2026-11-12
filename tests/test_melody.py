@@ -65,10 +65,25 @@ def test_vibrato_and_jitter_stay_one_note():
 
 
 def test_short_blips_and_scoops_are_merged_or_dropped():
-    # a 0.08 s blip between phrases is dropped; a 0.08 s scoop into a note joins the note
-    midi, prob = contour([(0.5, 60), (0.3, None), (0.08, 72), (0.3, None), (0.08, 63), (0.6, 65)])
+    # a one-frame blip between phrases is dropped; a scoop sliding up into a note joins the note
+    midi, prob = contour([(0.5, 60), (0.3, None), (0.04, 72), (0.3, None), (0.6, 65)])
+    start = int(np.flatnonzero(np.isfinite(midi))[-15])
+    midi[start:start + 3] = [62.4, 63.3, 64.2]
     notes = N.segment(midi, prob, HOP)
     assert [n.midi for n in notes] == [60, 65]
+
+
+def test_a_fast_note_is_kept_when_the_voice_sits_on_it():
+    hop = 0.01
+    rng = np.random.default_rng(1)
+
+    def run(middle):
+        midi = np.concatenate([np.full(40, 60.0), middle, np.full(40, 64.0)]) + rng.normal(0, 0.03, 80 + len(middle))
+        return [n.midi for n in N.segment(midi, np.full(len(midi), 0.9), hop, tuning=0.0)]
+
+    assert run(np.full(10, 62.0)) == [60, 62, 64]  # 0.1 s held on D: a note of its own
+    assert run(np.linspace(60.3, 63.7, 10)) == [60, 64]  # 0.1 s sliding through D: no note
+    assert run(np.full(4, 62.0)) == [60, 64]  # too short to be a note
 
 
 def test_tuning_offset_is_taken_out():
@@ -248,3 +263,24 @@ def test_profiles_by_tracker():
     assert N.profile("crepe-full") is N.profile("crepe-tiny") is N.PROFILES["crepe"]
     assert N.profile("pyin") is N.PROFILES["pyin"]
     assert N.profile("something-else") is N.PROFILES["pyin"]
+
+
+def test_wavering_notes_move_onto_the_pitches_the_song_uses():
+    hop = 0.01
+    rng = np.random.default_rng(2)
+    scale = [60, 62, 64, 65, 67]  # the song lives on these
+    parts = [np.full(60, float(scale[k % 5])) for k in range(60)]
+    waver = np.tile([61.1] * 6 + [61.9] * 4, 5)  # mostly on C#, a wide wobble reaching D
+    held = np.full(60, 66.0)  # a steady F#: unusual, but clearly sung
+    rest = np.full(30, np.nan)
+    midi = np.concatenate([*parts[:30], rest, waver, rest, held, rest, *parts[30:]])
+    midi = midi + rng.normal(0, 0.03, len(midi))
+    prob = np.where(np.isfinite(midi), 0.9, 0.0)
+    plain = [n.midi for n in N.segment(midi, prob, hop, tuning=0.0, refine=False)]
+    fixed = [n.midi for n in N.segment(midi, prob, hop, tuning=0.0)]
+    assert 61 in plain and 61 not in fixed  # the wobbling C# became the D the song uses
+    assert 66 in fixed  # the held F# stays
+    assert len(plain) == len(fixed)
+    short = np.concatenate([np.full(60, 60.0), np.full(30, np.nan), waver, np.full(30, np.nan), np.full(60, 62.0)])
+    prob = np.where(np.isfinite(short), 0.9, 0.0)
+    assert 61 in [n.midi for n in N.segment(short, prob, hop, tuning=0.0)]  # too little song to know its pitches

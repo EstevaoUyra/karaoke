@@ -135,3 +135,12 @@ def test_panel_grows_with_the_range_and_hides_in_long_gaps():
     assert wide.row_h >= 0.9 * roll.ROW_H * RES[1]
     panels = named(events(melody([(2.0, 3.0, 67), (40.0, 41.0, 67)]), duration=60.0), "pitch-panel")
     assert len(panels) == 2
+
+
+def test_notes_the_tracker_doubted_are_faint():
+    m = melody([(1.0, 2.0, 67), (3.0, 4.0, 69)])
+    m.notes[1].conf = 0.25
+    assert len(named(events(m), "pitch-faint")) == 0  # an unknown tracker's confidence is not judged
+    m.params["tracker"] = "crepe-tiny"
+    ev = events(m)
+    assert [e.name for e in ev if e.name in ("pitch-note", "pitch-faint")] == ["pitch-note", "pitch-faint"]

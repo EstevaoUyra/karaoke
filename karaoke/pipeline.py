@@ -134,7 +134,7 @@ STAGES: list[StageSpec] = [
         # (``melody_f0``), so a lyrics edit only re-segments. Instrumental and mix chroma help the key.
         inputs=lambda p: [p.vocals, p.instrumental, p.audio, p.lyrics_final],
         outputs=lambda p, j: [p.melody],
-        settings=lambda j, s: {"method": 2, "tracker": s.melody_tracker},  # bumped when the algorithm changes
+        settings=lambda j, s: {"method": 4, "tracker": s.melody_tracker},  # bumped when the algorithm changes
         isolated=True,  # torchcrepe imports torch: never in a process with ctranslate2
     ),
     StageSpec(
