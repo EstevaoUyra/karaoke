@@ -278,3 +278,18 @@ def test_api_draft_edit_upload_and_list_badge(api_client, job):
 
     st = c.post(f"/api/jobs/{jid}/youtube/update", json={"privacy": "public"}).json()
     assert st["draft"]["privacy"] == "public" and c.fake.calls[-1][0] == "update"
+
+
+def test_the_daily_upload_limit_is_explained(job):
+    yt.draft(job)
+
+    class Limited(FakeYouTube):
+        def insert(self, part, body, media_body):
+            class R:
+                def next_chunk(self):
+                    raise RuntimeError('HttpError 400 "uploadLimitExceeded"')
+            return R()
+
+    with pytest.raises(ValueError, match="daily upload limit"):
+        yt.upload(job, Limited(), sleep=lambda s: None)
+    assert read_model(job.youtube, YouTubeUpload).video_id is None

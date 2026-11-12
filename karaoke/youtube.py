@@ -518,6 +518,10 @@ def _body(y: YouTubeUpload, video_id: str | None = None) -> dict:
     return body
 
 
+UPLOAD_LIMIT_HELP = (
+    "YouTube refused the upload: this channel reached its daily upload limit (about 10 videos a day "
+    "for a channel without phone verification; https://www.youtube.com/verify raises it). Try again tomorrow."
+)
 RETRY_STATUS = (500, 502, 503, 504)
 MAX_RETRIES = 8
 
@@ -586,7 +590,12 @@ def upload(p: JobPaths, yt: Any = None, *, privacy: str | None = None, again: bo
     yt = yt or service()
     media = MediaFileUpload(str(p.final_video), mimetype="video/mp4", chunksize=8 * 1024 * 1024, resumable=True)
     request = yt.videos().insert(part="snippet,status", body=_body(y), media_body=media)
-    response = _resumable(request, log, sleep)
+    try:
+        response = _resumable(request, log, sleep)
+    except Exception as exc:
+        if "uploadLimitExceeded" in str(exc):
+            raise ValueError(UPLOAD_LIMIT_HELP) from exc
+        raise
     vid = response["id"]
     y = y.model_copy(update={"video_id": vid, "uploaded_at": now(), "video_sha1": file_hash(p.final_video)})
     write_model(p.youtube, y)
