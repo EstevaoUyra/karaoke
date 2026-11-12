@@ -186,6 +186,9 @@ class FakeYouTube:
         self.calls.append(("update", body))
         return _Exec(lambda: body)
 
+    def list(self, part, id):  # noqa: A002 — the API's name
+        return _Exec(lambda: {"items": [{"snippet": {"title": "t"}}]})  # YouTube kept no tags
+
 
 def test_upload_saves_the_id_then_thumbnail_and_playlist(job):
     yt.draft(job)
@@ -200,6 +203,7 @@ def test_upload_saves_the_id_then_thumbnail_and_playlist(job):
     assert ("thumbnail", "VID00000001") in fake.calls or not y.thumbnail  # no ffmpeg frame from a fake video
     assert ("playlist", "Karaokê") in fake.calls and ("item", "PL1", "VID00000001") in fake.calls
     assert sum("retrying" in m for m in logs) == 2
+    assert [c[0] for c in fake.calls].count("update") == 1  # the tags were sent again
     with pytest.raises(ValueError, match="already uploaded"):
         yt.upload(job, fake, sleep=lambda s: None)
 

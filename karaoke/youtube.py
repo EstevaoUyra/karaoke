@@ -595,6 +595,14 @@ def upload(p: JobPaths, yt: Any = None, *, privacy: str | None = None, again: bo
 def _extras(p: JobPaths, yt: Any, y: YouTubeUpload, log: Callable[[str], None]) -> None:
     from googleapiclient.http import MediaFileUpload
 
+    if y.tags:  # the first real upload came back with no tags; a second write kept them
+        try:
+            items = yt.videos().list(part="snippet", id=y.video_id).execute().get("items", [])
+            if items and not items[0]["snippet"].get("tags"):
+                yt.videos().update(part="snippet,status", body=_body(y, y.video_id)).execute()
+                log("tags sent again (YouTube had not kept them)")
+        except Exception as exc:  # noqa: BLE001 — the video is up; `--update` sends them later
+            log(f"could not check the tags ({exc}); run --update to send them again")
     if y.thumbnail and (p.root / y.thumbnail).exists():
         try:
             yt.thumbnails().set(videoId=y.video_id, media_body=MediaFileUpload(
