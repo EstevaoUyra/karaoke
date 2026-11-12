@@ -35,6 +35,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "watchfiles>=0.22",
     "torchcrepe==0.0.24",
+    "cutlet>=0.5.2",
+    "unidic-lite>=1.0.8",
 ]
 
 [project.scripts]
