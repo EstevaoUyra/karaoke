@@ -14,8 +14,9 @@ Each scene becomes a clip of an exact number of frames:
   workdir for exactly the scene's frames, then scaled up and softened. It reads the job's
   ``structure.json`` if there is one.
 
-Then ``gblur`` (sigma given at 1080p, scaled to the output height) and ``drawbox`` (black at
-``dim`` opacity). A ``fade`` transition into scene *i* is an ``xfade`` centred on the scene
+Then ``gblur`` (sigma given at 1080p, scaled to the output height) and the darkening: R, G and B
+are multiplied by ``1 - dim``, which keeps the colours' saturation.
+A ``fade`` transition into scene *i* is an ``xfade`` centred on the scene
 boundary: clip *i* starts ``d/2`` early and clip *i-1* ends ``d/2`` late, so every boundary stays
 where background.json puts it and the total length stays exact. ``cut`` is ``concat``.
 All boundaries are snapped to whole frames first, so the arithmetic is exact.
@@ -165,7 +166,10 @@ def _effects(scene: Scene, size: tuple[int, int]) -> list[str]:
     if scene.blur > 0:
         out.append(f"gblur=sigma={scene.blur * size[1] / 1080:.2f}")
     if scene.dim > 0:
-        out.append(f"drawbox=x=0:y=0:w=iw:h=ih:color=black@{min(scene.dim, 1.0):.3f}:t=fill")
+        # Scale R, G and B alike: the colours keep their saturation. (A black box drawn over the
+        # YUV frame, the first version, lifted the blacks and left pictures grey.)
+        k = 1.0 - min(scene.dim, 1.0)
+        out.append(f"format=rgb24,colorchannelmixer=rr={k:.3f}:gg={k:.3f}:bb={k:.3f}")
     return out
 
 
@@ -258,7 +262,8 @@ def build_graph(
             k = add_input(["-i", str(clip)])
             head = f"[{k}:v]"
             # bicubic upscale of a soft picture, then a blur that removes the scaling steps
-            steps = [f"scale={W}:{H}:flags=bicubic", f"gblur=sigma={H / 60:.2f}",
+            # ... and fine noise: a dark, smooth field in 8 bits shows its steps as bands otherwise
+            steps = [f"scale={W}:{H}:flags=bicubic", f"gblur=sigma={H / 60:.2f}", "noise=alls=3:allf=t",
                      f"tpad=stop_mode=clone:stop_duration={secs}"]
         else:  # pragma: no cover — the model's Literal forbids it
             raise ValueError(f"unknown source type {src.type!r}")
@@ -277,7 +282,8 @@ def build_graph(
                           f"offset={offset:.6f}[{out}]")
             acc_frames += c.frames - c.fade_in
         else:
-            chains.append(f"[{acc}][c{i}]concat=n=2:v=1:a=0[{out}]")
+            # concat hands on a 1/1000000 timebase; a later xfade needs both inputs on 1/fps
+            chains.append(f"[{acc}][c{i}]concat=n=2:v=1:a=0,fps={fps}[{out}]")
             acc_frames += c.frames
         acc = out
     assert acc_frames == total, (acc_frames, total)

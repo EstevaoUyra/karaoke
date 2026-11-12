@@ -68,7 +68,10 @@ YouTube URL
                 per section: palette (gradients in the cover's colours), cover (blurred
                 thumbnail), stills (frames of the source video), video (the source video, blurred),
                 aurora (a `generated` scene: moving colour that follows loudness, beats and
-                sections, drawn with numpy in `render/generated.py`)
+                sections, drawn with numpy in `render/generated.py`; also `pulse` and `drift`)
+     (optional) the karaoke-backgrounds skill (`.claude/skills/karaoke-backgrounds/`): reads
+                `karaoke bg-brief`, writes art_direction.md and background.json, checks with
+                `bg-check` (contract, locked scenes, legibility) and `bg-sheet` (contact sheet)
      (optional) AI skill: karaoke-backgrounds ── art-directed scene timeline + images
      (optional) UI: replace or lock any scene (upload / URL / web search)
                 │

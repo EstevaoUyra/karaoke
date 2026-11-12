@@ -99,7 +99,7 @@ def test_graph_video_dim_blur(tmp_path):
     assert g.inputs[0][:2] == ["-stream_loop", "-1"]
     assert "scale=1280:720:force_original_aspect_ratio=increase" in g.filter and "crop=1280:720" in g.filter
     assert "gblur=sigma=4.00" in g.filter  # 6 px at 1080p → 4 px at 720p
-    assert "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.450:t=fill" in g.filter
+    assert "colorchannelmixer=rr=0.550:gg=0.550:bb=0.550" in g.filter
 
 
 def test_graph_missing_image_is_a_clear_error(tmp_path):
@@ -122,7 +122,7 @@ def test_graph_transitions_keep_exact_duration(tmp_path):
     assert lens == [315, 315, 180, 180]
     xf = re.findall(r"xfade=transition=fade:duration=([\d.]+):offset=([\d.]+)", g.filter)
     assert [(float(d), float(o)) for d, o in xf] == [(1.0, 9.5), (2.0, 24.0)]
-    assert "[x1][c2]concat=n=2:v=1:a=0[x2]" in g.filter
+    assert "[x1][c2]concat=n=2:v=1:a=0,fps=30[x2]" in g.filter
     assert sum(lens) - 30 - 60 == 900
 
 
@@ -231,3 +231,17 @@ def test_render_demo_preview(demo, tmp_path):
     assert not _region_has(frames[14.5], top_row, sung)
     # 18.5 s: second chorus being sung on the top row
     assert _region_has(frames[18.5], top_row, sung)
+
+
+def test_a_cut_followed_by_a_fade_renders(tmp_path):
+    """A hard cut and then a cross-fade: concat's timebase used to break the xfade after it."""
+    def sc(i, a, b, colour, kind):
+        return Scene(id=f"s{i}", start=a, end=b, source=BgSource(type="color", value=colour),
+                     transition=Transition(type=kind, duration=0.0 if kind == "cut" else 0.5))
+
+    bg = Background(fps=10, scenes=[sc(1, 0, 2, "#200000", "cut"), sc(2, 2, 4, "#002000", "cut"),
+                                    sc(3, 4, 6, "#000020", "fade"), sc(4, 6, 8, "#202000", "cut"),
+                                    sc(5, 8, 10, "#002020", "fade")])
+    out = tmp_path / "bg.mp4"
+    g = render_background(bg, tmp_path, out, FFMPEG, size=(320, 180))
+    assert g.frames == 100 and out.stat().st_size > 1000
